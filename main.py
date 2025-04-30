@@ -6,28 +6,34 @@ import random
 import sys
 
 # Game variables
-BATTLEFIELD_SIZE = 1000  # Size of the battlefield
+BATTLEFIELD_SIZE = 2000  # Size of the battlefield (increased from 1000)
 player_pos = [0, 0, 50]  # Player position (x, y, z)
 player_rotation = 90  # Player rotation in degrees (start at 90 degrees)
 player_speed = 10  # Player movement speed - increased from 5 to 10
 player_boost_speed = 15  # Faster speed for quick maneuvers
-player_health = 1000  # Player health (new)
-max_player_health = 1000  # Maximum player health (new)
-damage_cooldown = 0  # Cooldown timer after taking damage (new)
-current_level = 1  # Current game level (new)
 enemies = []  # List to store enemy positions
-bullets = []  # List to store laser beam positions
-enemy_bullets = []  # List to store enemy laser beams (new)
+enemy_bullets = []  # List to store enemy laser beam positions
+player_bullets = []  # List to store player laser beam positions
 score = 0  # Player score
 game_over = False  # Game over flag
 HUD_color = (0, 1, 1)  # Cyan color for HUD elements
-health_bar_color = (0, 1, 0)  # Green color for health bar (new)
+MIN_ENEMY_DISTANCE = 300  # Absolute minimum distance enemies will maintain from player
+MAX_ENEMY_DISTANCE = 1200  # Maximum distance enemies will maintain from player (increased from 800)
+ENEMY_SHOOT_COOLDOWN = 180  # Frames between enemy shots (3 seconds at 60 FPS, increased from 120)
+ENEMY_SHOOT_CHANCE = 0.007  # Probability of an enemy shooting in a given frame
+MAX_SHOOTING_DISTANCE = 1500  # Maximum distance from which enemies will shoot (increased from 900)
+
+# Player health and lives system
+player_max_health = 1000  # Maximum health per life
+player_health = player_max_health  # Current health
+player_lives = 15  
+hit_flash_duration = 0  # Duration counter for red flash when hit
+DAMAGE_PER_HIT = 100  # Damage taken per enemy bullet hit
 
 # Movement effect variables
 moving_forward = False  # Flag for forward movement
 moving_backward = False  # Flag for backward movement
 thruster_glow_intensity = 0.0  # Base thruster glow intensity
-thruster_particles = []  # List to store thruster particle effects
 
 # Camera-related variables
 camera_mode = 0  # 0 = third-person, 1 = cockpit
@@ -41,129 +47,37 @@ grid_offset_y = 0  # Y-offset for grid animation
 grid_line_spacing = 100  # Spacing between grid lines
 grid_animation_speed = 5  # Speed of grid animation
 
-# Enemy type definitions
-ENEMY_TYPES = {
-    # Level 1: Basic fighters (red)
-    1: {
-        "hull_color": (0.4, 0.1, 0.1),      # Dark red
-        "accent_color": (1.0, 0.2, 0.0),    # Bright red
-        "health": 100,                       # Base health
-        "speed": 1.5,                        # Movement speed (reduced from 3)
-        "damage": 100,                       # Damage per hit
-        "firing_rate": 120,                  # Frames between shots (higher = slower)
-        "follow_distance": 400,              # Distance to start following player
-        "firing_distance": 350,              # Distance to start firing
-        "bullet_speed": 12,                  # Bullet speed (reduced from 15)
-        "bullet_color": (1.0, 0.2, 0.0),    # Bullet color (red)
-        "bullet_lifetime": 100,              # Bullet lifetime
-        "score_value": 100                   # Score awarded for destroying
-    },
-    
-    # Level 2: Advanced fighters (orange)
-    2: {
-        "hull_color": (0.4, 0.2, 0.0),      # Dark orange
-        "accent_color": (1.0, 0.5, 0.0),    # Bright orange
-        "health": 150,                       # More health
-        "speed": 2,                          # Faster (reduced from 4)
-        "damage": 120,                       # More damage
-        "firing_rate": 100,                  # Faster firing rate
-        "follow_distance": 450,              # Longer detection range
-        "firing_distance": 400,              # Longer firing range
-        "bullet_speed": 14,                  # Faster bullets (reduced from 17)
-        "bullet_color": (1.0, 0.5, 0.0),    # Bullet color (orange)
-        "bullet_lifetime": 120,              # Longer bullet lifetime
-        "score_value": 150                   # Higher score value
-    },
-    
-    # Level 3: Elite fighters (purple)
-    3: {
-        "hull_color": (0.3, 0.0, 0.3),      # Dark purple
-        "accent_color": (0.7, 0.0, 1.0),    # Bright purple
-        "health": 200,                       # Even more health
-        "speed": 2.5,                        # Even faster (reduced from 5)
-        "damage": 150,                       # More damage
-        "firing_rate": 80,                   # Even faster firing rate
-        "follow_distance": 500,              # Longer detection range
-        "firing_distance": 450,              # Longer firing range
-        "bullet_speed": 16,                  # Faster bullets (reduced from 20)
-        "bullet_color": (0.7, 0.0, 1.0),    # Bullet color (purple)
-        "bullet_lifetime": 150,              # Longer bullet lifetime
-        "score_value": 200                   # Higher score value
-    },
-    
-    # Level 4: Boss ships (green/toxic)
-    4: {
-        "hull_color": (0.1, 0.3, 0.1),      # Dark green
-        "accent_color": (0.0, 1.0, 0.2),    # Bright toxic green
-        "health": 350,                       # Very high health
-        "speed": 1.8,                        # Balanced speed (reduced from 3.5)
-        "damage": 200,                       # High damage
-        "firing_rate": 60,                   # Rapid firing rate
-        "follow_distance": 550,              # Long detection range
-        "firing_distance": 500,              # Long firing range
-        "bullet_speed": 15,                  # Fast bullets (reduced from 18)
-        "bullet_color": (0.0, 1.0, 0.2),    # Bullet color (green)
-        "bullet_lifetime": 180,              # Very long bullet lifetime
-        "score_value": 300                   # High score value
-    }
-}
+# Player experience and level system
+player_experience = 0  # Current experience points
+player_level = 1  # Current level
 
-# Level configurations
-LEVEL_CONFIG = {
-    1: {
-        "enemy_count": 10,                    # Number of enemies
-        "enemy_types": [1],                   # Types of enemies to spawn (from ENEMY_TYPES)
-        "next_level_score": 1000,             # Score needed to advance
-        "battlefield_color": (0.2, 0.4, 0.8)  # Grid color
-    },
-    2: {
-        "enemy_count": 12,
-        "enemy_types": [1, 2],                # Mix of level 1 and 2 enemies
-        "next_level_score": 2500,
-        "battlefield_color": (0.3, 0.4, 0.7)
-    },
-    3: {
-        "enemy_count": 15,
-        "enemy_types": [2, 3],                # Mix of level 2 and 3 enemies
-        "next_level_score": 4500,
-        "battlefield_color": (0.4, 0.3, 0.6)
-    },
-    4: {
-        "enemy_count": 10,
-        "enemy_types": [3, 4],                # Mix of level 3 and boss enemies
-        "next_level_score": 99999,            # Very high - effectively the final level
-        "battlefield_color": (0.2, 0.5, 0.5)
-    }
-}
-
+# Add a game won variable to track when the player has won
+game_won = False
+enemies_respawn_timer = 0  # Timer for post-victory message and enemy respawning
 
 # Initialize some enemies
-def initialize_enemies():
-    global enemies, current_level
+for i in range(10):
+    # Create enemies at random positions far from player
+    preferred_distance = random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)
+    angle = random.uniform(0, 2 * math.pi)
     
-    enemies = []  # Clear existing enemies
+    # Position based on preferred distance
+    pos_x = player_pos[0] + math.cos(angle) * preferred_distance
+    pos_y = player_pos[1] + math.sin(angle) * preferred_distance
     
-    level_data = LEVEL_CONFIG.get(current_level, LEVEL_CONFIG[1])  # Default to level 1 if invalid
-    enemy_count = level_data["enemy_count"]
-    enemy_types = level_data["enemy_types"]
+    # Ensure within battlefield bounds
+    pos_x = max(min(pos_x, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+    pos_y = max(min(pos_y, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
     
-    for i in range(enemy_count):
-        # Select a random enemy type from the available types for this level
-        enemy_type = random.choice(enemy_types)
-        
-        # Get enemy type data
-        type_data = ENEMY_TYPES[enemy_type]
-        
-        enemies.append([
-            random.uniform(-BATTLEFIELD_SIZE/2, BATTLEFIELD_SIZE/2),  # x
-            random.uniform(-BATTLEFIELD_SIZE/2, BATTLEFIELD_SIZE/2),  # y
-            random.uniform(100, 500),                                 # z (height)
-            random.uniform(0, 360),                                   # rotation
-            enemy_type,                                               # enemy type (new)
-            type_data["health"],                                      # health (new)
-            0,                                                        # firing cooldown (new)
-            0                                                         # behavior state (new)
-        ])
+    enemies.append([
+        pos_x,  # x
+        pos_y,  # y
+        random.uniform(100, 500),  # z (height)
+        random.uniform(0, 360),    # rotation
+        random.randint(0, ENEMY_SHOOT_COOLDOWN),  # shooting cooldown
+        [0, 0, 0],  # target position (will be set during gameplay)
+        random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)  # preferred distance from player
+    ])
 
 def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
     glColor3f(*HUD_color)  # Use HUD color
@@ -249,7 +163,7 @@ def draw_battleship():
     glColor3f(*accent_color)
     glTranslatef(55, 0, 0)
     glRotatef(90, 0, 1, 0)
-    glutSolidCone(15, 40, 16, 16)
+    glutSolidSphere(15, 40, 16)
     glPopMatrix()
 
     # Rear section - layered cones
@@ -257,10 +171,10 @@ def draw_battleship():
     glColor3f(*hull_color)
     glTranslatef(-55, 0, 0)
     glRotatef(-90, 0, 1, 0)
-    glutSolidCone(15, 25, 12, 12)
+    glutSolidSphere(15, 25, 12)
     glColor3f(*engine_glow_color)
     glTranslatef(0, 0, -10)
-    glutSolidCone(10, 15, 10, 10)
+    glutSolidSphere(10, 15, 10)
     glPopMatrix()
 
     # Main gun turrets - angular, sci-fi
@@ -315,7 +229,7 @@ def draw_turret(x, y, z, color, accent_color):
         glPushMatrix()
         glTranslatef(8, offset, 2)
         glRotatef(90, 0, 1, 0)
-        glutSolidCone(2, 18, 8, 1)
+        glutSolidSphere(2, 18, 8)
         glPopMatrix()
     glPopMatrix()
 
@@ -330,7 +244,7 @@ def draw_secondary_turret(x, y, z, accent_color):
     glPushMatrix()
     glTranslatef(5, 0, 0)
     glRotatef(90, 0, 1, 0)
-    glutSolidCone(1, 12, 8, 1)
+    glutSolidSphere(1, 12, 8)
     glPopMatrix()
     glPopMatrix()
 
@@ -372,44 +286,7 @@ def draw_engines(engine_glow_color, accent_color):
     # Engine glow - changes color and size with movement
     glColor3f(*enhanced_glow)
     # Reduced size but still larger than original
-    glutSolidSphere(10 * size_mult, 16, 16)
-    
-    # Add additional glow effect when moving
-    if thruster_glow_intensity > 0.2:
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        
-        # Outer glow
-        if moving_forward:
-            outer_glow = [0.2, 0.8, 1.0, 0.7 * thruster_glow_intensity]  # Cyan outer glow
-        else:
-            outer_glow = [1.0, 0.6, 0.1, 0.7 * thruster_glow_intensity]  # Orange outer glow
-            
-        glColor4f(*outer_glow)
-        glutSolidSphere(14 * size_mult, 16, 16)
-        
-        # Thruster trail (large cone)
-        glPushMatrix()
-        glTranslatef(-15, 0, 0)
-        glRotatef(-90, 0, 1, 0)
-        
-        # Cone color based on movement
-        if moving_forward:
-            cone_glow = [0.0, 0.7, 1.0, 0.6 * thruster_glow_intensity]  # Cyan flame
-            inner_cone = [0.3, 0.8, 1.0, 0.8 * thruster_glow_intensity]  # Brighter cyan inner
-        else:
-            cone_glow = [1.0, 0.5, 0.0, 0.6 * thruster_glow_intensity]  # Orange flame
-            inner_cone = [1.0, 0.7, 0.2, 0.8 * thruster_glow_intensity]  # Yellow-orange inner
-            
-        glColor4f(*cone_glow)
-        glutSolidCone(12 * size_mult, 35 * size_mult, 16, 8)
-        
-        # Inner cone (brighter)
-        glColor4f(*inner_cone)
-        glutSolidCone(8 * size_mult, 25 * size_mult, 12, 8)
-        
-        glDisable(GL_BLEND)
-        glPopMatrix()
+    glutSolidSphere(int(10 * size_mult), 16, 16)
     
     glPopMatrix()
     
@@ -424,19 +301,19 @@ def draw_engines(engine_glow_color, accent_color):
         # Small side thruster glow - same color as main thruster
         glColor3f(*enhanced_glow)
         glTranslatef(-5, 0, 0)
-        glutSolidSphere(4 * size_mult, 8, 8)
+        glutSolidSphere(int(4 * size_mult), 8, 8)
         glPopMatrix()
     
     # Extra glowing energy core at the rear
     glPushMatrix()
     # Energy core changes color with movement
     if moving_forward:
-        glColor3f(0.0, 0.8, 1.0)  # Cyan for forward
+        glColor3f(1.0, 0.6, 0.2)  # Orange for forward
     else:
-        glColor3f(1.0, 0.6, 0.2)  # Orange for idle/backward
+         glColor3f(1,1,1) # Cyan for idle/backward
     
     glTranslatef(-60, 0, 12)  # Positioned above the main thruster
-    glutSolidSphere(6 + thruster_glow_intensity * 2, 12, 12)  # Adjusted energy core size
+    glutSolidSphere(int(6 + thruster_glow_intensity * 2), 12, 12)  # Adjusted energy core size
     glPopMatrix()
     
     # Add energy conduits connecting to the main thruster
@@ -453,267 +330,780 @@ def draw_engines(engine_glow_color, accent_color):
     glutSolidCube(30)
     glPopMatrix()
     
-    # Draw thruster particles when moving forward (but not when moving backward)
-    if thruster_glow_intensity > 0 and not moving_backward:
-        draw_thruster_particles()
 
-def draw_thruster_particles():
-    """Draw particle effects for thrusters"""
-    global thruster_particles, moving_forward, moving_backward
-    
-    # Only draw particles if there are any and thruster effect is active
-    if not thruster_particles or thruster_glow_intensity <= 0:
-        return
-        
-    glPushMatrix()
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE)
-    glDepthMask(GL_FALSE)
-    
-    # Draw each particle
-    glPointSize(4)  # Larger particles
-    glBegin(GL_POINTS)
-    
-    for particle in thruster_particles:
-        # Fade out based on lifetime
-        alpha = particle[3] / 40.0  # Lifetime based alpha
-        
-        if moving_forward:
-            # Cyan particles when moving forward
-            glColor4f(0.0, 0.8 * alpha, 1.0, alpha)  # Cyan to blue
-        else:
-            # Orange particles when idle
-            glColor4f(1.0, 0.5 * alpha, 0.0, alpha)  # Orange to darker orange
-        
-        glVertex3f(particle[0], particle[1], particle[2])
-    glEnd()
-    
-    glDepthMask(GL_TRUE)
-    glDisable(GL_BLEND)
-    glPopMatrix()
 
-def draw_enemy_ship(enemy_type=1):
-    """Draw enemy spaceship based on enemy type"""
-    # Get colors for this enemy type
-    type_data = ENEMY_TYPES.get(enemy_type, ENEMY_TYPES[1])  # Default to type 1 if invalid
-    hull_color = type_data["hull_color"]
-    accent_color = type_data["accent_color"]
-    energy_core_color = accent_color  # Use accent color for energy core
-    engine_glow_color = (1.0, 0.5, 0.0)  # Orange engine glow for all types
+def draw_enemy_ship():
+    """Draw enemy spaceship with matching aesthetic to player ship but distinct enemy look"""
+    # Colors for enemy ships (red theme)
+    hull_color = (0.4, 0.1, 0.1)         # Dark red hull
+    accent_color = (1.0, 0.2, 0.0)       # Bright red accent
+    highlight_color = (0.8, 0.2, 0.2)    # Lighter red highlight
+    energy_core_color = (1.0, 0.7, 0.0)  # Yellow-orange energy
+    engine_glow_color = (1.0, 0.5, 0.0)  # Orange engine glow
     
-    # Size multiplier based on enemy type (bosses are bigger)
-    size_mult = 1.0
-    if enemy_type == 4:  # Boss type
-        size_mult = 1.5
-    
-    # Main hull - angular design that varies by type
+    # Main hull - angular, similar to player but sleeker
     glPushMatrix()
     glColor3f(*hull_color)
-    
-    if enemy_type <= 2:  # Type 1-2: Flat, sleek design
-        glScalef(2.5 * size_mult, 0.9 * size_mult, 0.4 * size_mult)
-        glutSolidCube(25)
-    elif enemy_type == 3:  # Type 3: More angular, aggressive design
-        glScalef(2.2 * size_mult, 1.1 * size_mult, 0.5 * size_mult)
-        glutSolidCube(25)
-    else:  # Type 4 (Boss): Bulkier design
-        glScalef(2.0 * size_mult, 1.3 * size_mult, 0.7 * size_mult)
-        glutSolidCube(30)
+    glScalef(2.5, 0.9, 0.4)  # Flatter, longer design
+    glutSolidCube(25)
     glPopMatrix()
     
-    # Upper section
+    # Upper angular section
     glPushMatrix()
-    glColor3f(*accent_color)
-    glTranslatef(0, 0, 8 * size_mult)
-    
-    if enemy_type <= 2:  # Type 1-2: Flat top
-        glScalef(2.0 * size_mult, 0.7 * size_mult, 0.15 * size_mult)
-        glutSolidCube(25)
-    elif enemy_type == 3:  # Type 3: More pronounced top
-        glScalef(1.8 * size_mult, 0.8 * size_mult, 0.2 * size_mult)
-        glutSolidCube(25)
-    else:  # Type 4 (Boss): Elevated command deck
-        glScalef(1.6 * size_mult, 1.0 * size_mult, 0.25 * size_mult)
-        glutSolidCube(30)
+    glColor3f(*highlight_color)
+    glTranslatef(0, 0, 8)
+    glScalef(2.0, 0.7, 0.15)
+    glutSolidCube(25)
     glPopMatrix()
     
-    # Front section - varies by type
+    # Command module (triangular) at front
     glPushMatrix()
-    glColor3f(*hull_color)
-    
-    if enemy_type == 1:  # Type 1: Triangular nose
-        glTranslatef(25 * size_mult, 0, 0)
-        glRotatef(90, 0, 1, 0)
-        glutSolidCone(10 * size_mult, 25 * size_mult, 12, 12)
-    elif enemy_type == 2:  # Type 2: More angular nose
-        glTranslatef(30 * size_mult, 0, 0)
-        glRotatef(90, 0, 1, 0)
-        glutSolidCone(12 * size_mult, 30 * size_mult, 8, 8)
-    elif enemy_type == 3:  # Type 3: Sharper, more alien nose
-        glTranslatef(28 * size_mult, 0, 0)
-        glRotatef(90, 0, 1, 0)
-        glScalef(1.0, 1.4, 1.0)  # Flattened vertically
-        glutSolidCone(10 * size_mult, 35 * size_mult, 8, 8)
-    else:  # Type 4 (Boss): Double-pronged front
-        # First prong
-        glTranslatef(30 * size_mult, 10 * size_mult, 0)
-        glRotatef(90, 0, 1, 0)
-        glutSolidCone(8 * size_mult, 40 * size_mult, 8, 8)
-        # Second prong
-        glTranslatef(0, -20 * size_mult, 0)
-        glutSolidCone(8 * size_mult, 40 * size_mult, 8, 8)
+    glColor3f(*highlight_color)
+    glTranslatef(25, 0, 0)
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(10, 25, 12)
     glPopMatrix()
     
-    # Side wings/fins - shape varies by type
-    y_offsets = [(20, 20), (-20, -20)]  # Default wing positions and angles
-    if enemy_type == 3:
-        y_offsets = [(25, 25), (-25, -25)]  # Type 3: Wider wings
-    elif enemy_type == 4:
-        y_offsets = [(30, 30), (-30, -30), (15, 15), (-15, -15)]  # Type 4: Four wings
-    
-    for y_offset, angle in y_offsets:
+    # Side wings/fins - angular with enemy design
+    for y_offset, angle in [(20, 20), (-20, -20)]:
         glPushMatrix()
         glColor3f(*accent_color)
-        glTranslatef(0, y_offset * size_mult, 0)
+        glTranslatef(0, y_offset, 0)
         glRotatef(angle, 0, 0, 1)
-        
-        if enemy_type <= 2:  # Type 1-2: Standard wings
-            glScalef(1.0 * size_mult, 0.15 * size_mult, 0.1 * size_mult)
-            glutSolidCube(50)
-        elif enemy_type == 3:  # Type 3: More angular wings
-            glScalef(1.2 * size_mult, 0.12 * size_mult, 0.1 * size_mult)
-            glutSolidCube(55)
-        else:  # Type 4 (Boss): Shorter, thicker wings
-            glScalef(0.8 * size_mult, 0.2 * size_mult, 0.12 * size_mult)
-            glutSolidCube(60)
+        glScalef(1.0, 0.15, 0.1)
+        glutSolidCube(50)
         glPopMatrix()
     
-    # Weapons - number and position varies by type
-    weapon_positions = [(-15, 0), (0, 0), (15, 0)]  # Default (type 1)
-    
-    if enemy_type == 2:
-        weapon_positions = [(-20, 0), (-5, 0), (10, 0), (25, 0)]  # Type 2: More weapons
-    elif enemy_type == 3:
-        weapon_positions = [(-20, 0), (0, 0), (20, 0), (-10, 10), (10, -10)]  # Type 3: More spread
-    elif enemy_type == 4:
-        weapon_positions = [(-25, 0), (-15, 0), (-5, 0), (5, 0), (15, 0), (25, 0), 
-                            (-20, 15), (0, 15), (20, 15), (-20, -15), (0, -15), (20, -15)]  # Type 4: Many weapons
-    
-    for x_offset, y_offset in weapon_positions:
+    # Energy weapons on top
+    for x_offset in [-15, 0, 15]:
         glPushMatrix()
-        glTranslatef(x_offset * size_mult, y_offset * size_mult, 10 * size_mult)
+        glTranslatef(x_offset, 0, 10)
         # Weapon base
         glColor3f(*hull_color)
-        glutSolidSphere(3 * size_mult, 8, 8)
+        glutSolidSphere(3, 8, 8)
         # Weapon barrel
         glColor3f(*accent_color)
         glRotatef(-90, 1, 0, 0)
-        glutSolidCylinder(1.5 * size_mult, 8 * size_mult, 8, 1)
+        glutSolidSphere(1.5, 8, 8)
         glPopMatrix()
     
-    # Rear section with thruster
+    # Rear section with central thruster
     glPushMatrix()
-    glTranslatef(-40 * size_mult, 0, 0)
+    glTranslatef(-40, 0, 0)
     
     # Thruster housing
     glColor3f(*hull_color)
-    glScalef(0.3 * size_mult, 0.4 * size_mult, 0.4 * size_mult)
+    glScalef(0.3, 0.4, 0.4)
     glutSolidCube(35)
     glPopMatrix()
     
     # Engine glow
     glPushMatrix()
-    glTranslatef(-46 * size_mult, 0, 0)
+    glTranslatef(-46, 0, 0)
     glColor3f(*engine_glow_color)
-    glutSolidSphere(6 * size_mult, 12, 12)
+    glutSolidSphere(6, 12, 12)
     glPopMatrix()
     
     # Side thrusters
     for y_offset in [-15, 15]:
         glPushMatrix()
-        glTranslatef(-35 * size_mult, y_offset * size_mult, 0)
+        glTranslatef(-35, y_offset, 0)
         # Thruster housing
         glColor3f(*hull_color)
-        glScalef(0.2 * size_mult, 0.2 * size_mult, 0.2 * size_mult)
+        glScalef(0.2, 0.2, 0.2)
         glutSolidCube(20)
         # Thruster glow
         glTranslatef(-15, 0, 0)
         glColor3f(*engine_glow_color)
-        glutSolidSphere(3 * size_mult, 8, 8)
+        glutSolidSphere(3, 8, 8)
         glPopMatrix()
     
-    # Energy core on top (glowing) - larger and more complex for higher types
+    # Energy core on top (glowing)
     glPushMatrix()
     glColor3f(*energy_core_color)
-    
-    if enemy_type <= 2:  # Type 1-2: Simple sphere
-        glTranslatef(-25 * size_mult, 0, 12 * size_mult)
-        glutSolidSphere(4 * size_mult, 10, 10)
-    elif enemy_type == 3:  # Type 3: Pulsing sphere with ring
-        glTranslatef(-25 * size_mult, 0, 15 * size_mult)
-        glutSolidSphere(5 * size_mult, 12, 12)
-        glColor3f(*hull_color)
-        glRotatef(90, 1, 0, 0)
-        glutSolidTorus(1 * size_mult, 7 * size_mult, 8, 16)
-    else:  # Type 4 (Boss): Complex energy core
-        glTranslatef(-25 * size_mult, 0, 18 * size_mult)
-        glutSolidSphere(7 * size_mult, 16, 16)
-        glColor3f(*hull_color)
-        glRotatef(90, 1, 0, 0)
-        glutSolidTorus(1.5 * size_mult, 9 * size_mult, 12, 24)
+    glTranslatef(-25, 0, 12)
+    glutSolidSphere(4, 10, 10)
+    # Energy conduit to engines
+    glColor3f(*accent_color)
+    glTranslatef(-10, 0, -6)
+    glScalef(0.8, 0.1, 0.6)
+    glutSolidCube(20)
     glPopMatrix()
     
     # Thruster flame effects (always on for enemies)
     glPushMatrix()
-    glTranslatef(-55 * size_mult, 0, 0)
+    glTranslatef(-55, 0, 0)
     glRotatef(-90, 0, 1, 0)
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    glColor4f(1.0, 0.5, 0.0, 0.7)  # Orange flame
-    glutSolidCone(5 * size_mult, 15 * size_mult, 8, 2)
-    glColor4f(1.0, 0.7, 0.0, 0.5)  # Yellow-orange inner flame
-    glutSolidCone(3 * size_mult, 10 * size_mult, 8, 2)
+    glColor3f(1.0, 0.5, 0.0)  # Orange flame
+    glutSolidSphere(5, 15, 8)
+    glColor3f(1.0, 0.7, 0.0)  # Yellow-orange inner flame
+    glutSolidSphere(3, 10, 8)
     glDisable(GL_BLEND)
     glPopMatrix()
 
-def draw_enemy_bullet(bullet_color):
-    """Draw a laser beam from an enemy ship"""
-    # Get the bullet color from the parameters
-    glColor3f(*bullet_color)
+def draw_golden_enemy_ship():
+    """Draw a golden enemy spaceship with enhanced details and more menacing appearance"""
+    # Enhanced colors for golden enemy ships - more vibrant and metallic
+    hull_color = (0.8, 0.7, 0.1)         # Golden hull
+    accent_color = (1.0, 0.9, 0.0)       # Brighter gold accent
+    highlight_color = (1.0, 1.0, 0.3)    # Bright gold highlight
+    energy_core_color = (1.0, 1.0, 0.5)  # Bright yellow energy
+    engine_glow_color = (1.0, 0.7, 0.0)  # Golden-orange engine glow
+    dark_accent = (0.5, 0.4, 0.0)        # Darker gold for details
     
-    # Draw a long, thin beam using a scaled cube
+    # Overall size increase by 40%
+    size_scale = 1.4
+    
+    # Main hull - enhanced with more details
     glPushMatrix()
-    glScalef(20, 0.7, 0.7)  # Enemy bullets are slightly thicker but shorter
-    glutSolidCube(5)
+    glColor3f(*hull_color)
+    glScalef(2.5 * size_scale, 0.9 * size_scale, 0.5 * size_scale)  # Larger design
+    glutSolidCube(25)
     glPopMatrix()
     
-    # Add a glow effect
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE)
-    glColor4f(bullet_color[0], bullet_color[1], bullet_color[2], 0.5)
+    # Upper angular section - more detailed with layered appearance
     glPushMatrix()
-    glScalef(22, 1.2, 1.2)  # Slightly larger for glow effect
-    glutSolidCube(5)
+    glColor3f(*highlight_color)
+    glTranslatef(0, 0, 8 * size_scale)
+    glScalef(2.0 * size_scale, 0.7 * size_scale, 0.15 * size_scale)
+    glutSolidCube(25)
+    
+    # Additional upper deck detail
+    glColor3f(*accent_color)
+    glTranslatef(0, 0, 4)
+    glScalef(0.85, 0.85, 1.0)
+    glutSolidCube(25)
     glPopMatrix()
-    glDisable(GL_BLEND)
-
-def draw_enemy_bullets():
-    """Draw all enemy laser beams"""
-    for bullet in enemy_bullets:
+    
+    # Command module (triangular) at front - sharper and more detailed
+    glPushMatrix()
+    glColor3f(*highlight_color)
+    glTranslatef(30 * size_scale, 0, 0)
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(int(12 * size_scale), int(30 * size_scale), 16)  # More detailed cone
+    
+    # Add ring detail around nose
+    glColor3f(*accent_color)
+    glTranslatef(0, 0, 10 * size_scale)
+    glutSolidSphere(int(2 * size_scale), int(8 * size_scale), 16)
+    glPopMatrix()
+    
+    # Side wings/fins - enhanced design with extra details
+    for y_offset, angle in [(20 * size_scale, 20), (-20 * size_scale, -20)]:
         glPushMatrix()
-        glTranslatef(bullet[0], bullet[1], bullet[2])
-        glRotatef(bullet[3], 0, 0, 1)  # Rotate to match firing direction
+        glColor3f(*accent_color)
+        glTranslatef(0, y_offset, 0)
+        glRotatef(angle, 0, 0, 1)
+        glScalef(1.2 * size_scale, 0.15 * size_scale, 0.1 * size_scale)
+        glutSolidCube(50)
         
-        # Get enemy type and bullet color
-        enemy_type = bullet[6]  # Store enemy type in bullet data
-        bullet_color = ENEMY_TYPES[enemy_type]["bullet_color"]
+        # Add wing details - stripes
+        glColor3f(*dark_accent)
+        glTranslatef(-15, 0, 0)
+        glScalef(0.2, 1.0, 1.2)
+        glutSolidCube(50)
         
-        draw_enemy_bullet(bullet_color)
+        glTranslatef(30, 0, 0)
+        glutSolidCube(50)
         glPopMatrix()
+    
+    # Energy weapons on top - more and bigger
+    for x_offset, y_offset in [(-18 * size_scale, 0), (0, 0), (18 * size_scale, 0), 
+                          (-12 * size_scale, 10 * size_scale), (12 * size_scale, 10 * size_scale),
+                          (-12 * size_scale, -10 * size_scale), (12 * size_scale, -10 * size_scale)]:
+        glPushMatrix()
+        glTranslatef(x_offset, y_offset, 10 * size_scale)
+        # Weapon base
+        glColor3f(*dark_accent)
+        glutSolidSphere(int(3 * size_scale), 10, 10)
+        # Weapon barrel
+        glColor3f(*accent_color)
+        glRotatef(-90, 1, 0, 0)
+        glutSolidSphere(int(1.8 * size_scale), int(10 * size_scale), 10)
+        
+        # Add glowing tip
+        glTranslatef(0, 0, 10 * size_scale)
+        glColor3f(*highlight_color)
+        glutSolidSphere(int(1.2 * size_scale), 8, 8)
+        glPopMatrix()
+    
+    # Rear section with central thruster - more detailed
+    glPushMatrix()
+    glTranslatef(-40 * size_scale, 0, 0)
+    
+    # Thruster housing
+    glColor3f(*hull_color)
+    glScalef(0.4 * size_scale, 0.5 * size_scale, 0.5 * size_scale)
+    glutSolidCube(35)
+    
+    # Additional thruster details - rings
+    glColor3f(*accent_color)
+    glTranslatef(-20, 0, 0)
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(3, 15, 16)
+    glPopMatrix()
+    
+    # Engine glow - enhanced with layered effect
+    glPushMatrix()
+    glTranslatef(-48 * size_scale, 0, 0)
+    
+    # Inner core
+    glColor3f(1.0, 1.0, 0.8)  # Bright white-yellow
+    glutSolidSphere(int(5 * size_scale), 16, 16)
+    
+    # Outer glow
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    glColor3f(1.0, 0.8, 0.0)  # Semi-transparent gold
+    glutSolidSphere(int(8 * size_scale), 16, 16)
+    glDisable(GL_BLEND)
+    glPopMatrix()
+    
+    # Side thrusters - enhanced
+    for y_offset in [-18 * size_scale, 18 * size_scale]:
+        glPushMatrix()
+        glTranslatef(-40 * size_scale, y_offset, 0)
+        # Thruster housing
+        glColor3f(*dark_accent)
+        glScalef(0.25 * size_scale, 0.25 * size_scale, 0.25 * size_scale)
+        glutSolidCube(20)
+        
+        # Add detail ring
+        glColor3f(*accent_color)
+        glTranslatef(-12, 0, 0)
+        glRotatef(90, 0, 1, 0)
+        glutSolidSphere(2, 8, 12)
+        
+        # Thruster glow
+        glColor3f(*engine_glow_color)
+        glTranslatef(0, 0, 0)
+        glutSolidSphere(int(4 * size_scale), 12, 12)
+        glPopMatrix()
+    
+    # Energy core on top (glowing) - more complex and detailed
+    glPushMatrix()
+    glTranslatef(-25 * size_scale, 0, 15 * size_scale)  # Higher position
+    
+    # Main core
+    glColor3f(*energy_core_color)
+    glutSolidSphere(int(5 * size_scale), 16, 16)
+    
+    # Surrounding ring
+    glColor3f(*dark_accent)
+    glRotatef(90, 1, 0, 0)
+    glutSolidSphere(int(1.5 * size_scale), int(7 * size_scale), 16)
+    
+    # Energy conduit to engines
+    glColor3f(*accent_color)
+    glRotatef(90, 0, 1, 0)
+    glTranslatef(0, 0, -10 * size_scale)
+    glScalef(0.9 * size_scale, 0.1 * size_scale, 0.7 * size_scale)
+    glutSolidCube(20)
+    glPopMatrix()
+    
+    # Decorative fins on top - new feature
+    for z_offset, x_scale in [(8 * size_scale, 0.6), (0, 0.8), (-8 * size_scale, 0.6)]:
+        glPushMatrix()
+        glColor3f(*dark_accent)
+        glTranslatef(-15 * size_scale, 0, 12 * size_scale + z_offset)
+        glRotatef(90, 0, 1, 0)
+        glScalef(x_scale, 0.1, 0.4)
+        glutSolidCube(20 * size_scale)
+        glPopMatrix()
+    
+    # Thruster flame effects - enhanced
+    glPushMatrix()
+    glTranslatef(-55 * size_scale, 0, 0)
+    glRotatef(-90, 0, 1, 0)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    
+    # Outer flame
+    glColor3f(1.0, 0.7, 0.2)  # Golden flame
+    glutSolidSphere(int(7 * size_scale), int(22 * size_scale), 12)
+    
+    # Middle flame
+    glColor3f(1.0, 0.8, 0.3)  # Lighter gold
+    glutSolidSphere(int(5 * size_scale), int(16 * size_scale), 12)
+    
+    # Inner flame
+    glColor3f(1.0, 0.9, 0.5)  # Bright gold inner flame
+    glutSolidSphere(int(3 * size_scale), int(12 * size_scale), 8)
+    
+    glDisable(GL_BLEND)
+    glPopMatrix()
 
-def draw_laser_beam():
+def draw_black_red_enemy_ship():
+    """Draw a black-red enemy spaceship with enhanced dark, menacing appearance and more details"""
+    # Enhanced colors for black-red enemy ships - more sinister
+    hull_color = (0.08, 0.03, 0.03)       # Almost black hull
+    accent_color = (0.8, 0.0, 0.0)        # Blood red accent
+    highlight_color = (0.4, 0.0, 0.0)     # Dark red highlight
+    energy_core_color = (1.0, 0.1, 0.1)   # Bright red energy with slight orange
+    dark_detail = (0.15, 0.05, 0.05)      # Very dark red for details
+    
+    # Overall size increase by 45%
+    size_scale = 1.45
+    
+    # Main hull - larger, more aggressive
+    glPushMatrix()
+    glColor3f(*hull_color)
+    glScalef(2.6 * size_scale, 1.1 * size_scale, 0.6 * size_scale)  # Larger, wider design
+    glutSolidCube(25)
+    glPopMatrix()
+    
+    # Upper structure - more angular and menacing
+    glPushMatrix()
+    glColor3f(*highlight_color)
+    glTranslatef(0, 0, 9 * size_scale)
+    glScalef(2.1 * size_scale, 0.9 * size_scale, 0.25 * size_scale)
+    glutSolidCube(25)
+    
+    # Add ridged detail on top
+    glColor3f(*dark_detail)
+    glTranslatef(0, 0, 3)
+    glScalef(0.9, 0.7, 0.5)
+    glutSolidCube(25)
+    glPopMatrix()
+    
+    # Command module (triangular) at front - sharper and more aggressive
+    glPushMatrix()
+    glColor3f(*highlight_color)
+    glTranslatef(35 * size_scale, 0, 0)
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(int(14 * size_scale), int(35 * size_scale), 16)  # Longer, sharper nose
+    
+    # Add menacing detail to the front
+    glColor3f(*accent_color)
+    glTranslatef(0, 0, 15 * size_scale)
+    glRotatef(90, 1, 0, 0)
+    glutSolidSphere(int(2 * size_scale), int(8 * size_scale), 16)
+    
+    # Additional nose spike
+    glColor3f(*dark_detail)
+    glRotatef(-90, 1, 0, 0)
+    glTranslatef(0, 0, -5 * size_scale)
+    glutSolidSphere(int(3 * size_scale), int(15 * size_scale), 8)
+    glPopMatrix()
+    
+    # Side wings/fins - more aggressive design with spikes
+    for y_offset, angle in [(28 * size_scale, 25), (-28 * size_scale, -25)]:  # Wider wingspan
+        glPushMatrix()
+        glColor3f(*accent_color)
+        glTranslatef(0, y_offset, 0)
+        glRotatef(angle, 0, 0, 1)
+        glScalef(1.4 * size_scale, 0.15 * size_scale, 0.12 * size_scale)  # Longer wings
+        glutSolidCube(50)
+        
+        # Add wing details - ridges
+        glColor3f(*dark_detail)
+        glTranslatef(-15, 0, 0)
+        glScalef(0.15, 0.8, 1.0)
+        glutSolidCube(50)
+        
+        glTranslatef(30, 0, 0)
+        glutSolidCube(50)
+        
+        glTranslatef(30, 0, 0)
+        glutSolidCube(50)
+        glPopMatrix()
+        
+        # Add spikes to wing tips
+        glPushMatrix()
+        glColor3f(*dark_detail)
+        # Calculate position at wing tip
+        wing_tip_x = 0
+        wing_tip_y = y_offset + math.sin(math.radians(angle)) * 35 * size_scale
+        wing_tip_z = 0
+        glTranslatef(wing_tip_x, wing_tip_y, wing_tip_z)
+        glRotatef(angle + 90, 0, 0, 1)
+        glutSolidSphere(int(2 * size_scale), int(12 * size_scale), 8)
+        glPopMatrix()
+    
+    # Energy weapons on top - more and bigger, arranged in a threatening pattern
+    for x_offset, y_offset in [(-22 * size_scale, 0), (-11 * size_scale, 0), (0, 0), (11 * size_scale, 0), (22 * size_scale, 0), 
+                          (-16 * size_scale, 14 * size_scale), (16 * size_scale, 14 * size_scale),
+                          (-16 * size_scale, -14 * size_scale), (16 * size_scale, -14 * size_scale)]:
+        glPushMatrix()
+        glTranslatef(x_offset, y_offset, 12 * size_scale)
+        # Weapon base
+        glColor3f(*dark_detail)
+        glutSolidSphere(int(3.5 * size_scale), 10, 10)
+        # Weapon barrel
+        glColor3f(*accent_color)
+        glRotatef(-90, 1, 0, 0)
+        glutSolidSphere(int(2 * size_scale), int(12 * size_scale), 10)
+        
+        # Add glowing tip
+        glTranslatef(0, 0, 12 * size_scale)
+        glColor3f(1.0, 0.3, 0.0)  # Orange-red glow
+        glutSolidSphere(int(1.5 * size_scale), 8, 8)
+        glPopMatrix()
+    
+    # Rear section with larger thruster - more detailed and intimidating
+    glPushMatrix()
+    glTranslatef(-45 * size_scale, 0, 0)
+    
+    # Thruster housing
+    glColor3f(*hull_color)
+    glScalef(0.5 * size_scale, 0.6 * size_scale, 0.6 * size_scale)  # Larger thruster
+    glutSolidCube(35)
+    
+    # Thruster rings/details
+    glColor3f(*dark_detail)
+    glTranslatef(-20, 0, 0)
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(4, 18, 16)
+    
+    # Additional detail
+    glColor3f(*accent_color)
+    glTranslatef(0, 0, 0)
+    glutSolidSphere(2, 12, 12)
+    glPopMatrix()
+    
+    # Engine glow - enhanced with layered, menacing effect
+    glPushMatrix()
+    glTranslatef(-55 * size_scale, 0, 0)
+    
+    # Inner core - bright
+    glColor3f(1.0, 0.3, 0.0)  # Orange-red
+    glutSolidSphere(int(6 * size_scale), 16, 16)
+    
+    # Outer glow - with transparency for effect
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    glColor3f(0.8, 0.1, 0.0)  # Semi-transparent red
+    glutSolidSphere(int(10 * size_scale), 16, 16)
+    glDisable(GL_BLEND)
+    glPopMatrix()
+    
+    # Side thrusters - enhanced and more intimidating
+    for y_offset in [-20 * size_scale, 20 * size_scale]:  # Wider spacing
+        glPushMatrix()
+        glTranslatef(-43 * size_scale, y_offset, 0)
+        # Thruster housing
+        glColor3f(*dark_detail)
+        glScalef(0.3 * size_scale, 0.3 * size_scale, 0.3 * size_scale)
+        glutSolidCube(20)
+        
+        # Add detail ring
+        glColor3f(*accent_color)
+        glTranslatef(-12, 0, 0)
+        glRotatef(90, 0, 1, 0)
+        glutSolidSphere(2.5, 9, 12)
+        
+        # Thruster glow
+        glColor3f(1.0, 0.2, 0.0)  # Brighter glow
+        glTranslatef(0, 0, 0)
+        glutSolidSphere(int(5 * size_scale), 12, 12)
+        glPopMatrix()
+    
+    # Energy core on top - larger, more complex and menacing
+    glPushMatrix()
+    glTranslatef(-25 * size_scale, 0, 18 * size_scale)  # Higher position
+    
+    # Pulsing core
+    glColor3f(*energy_core_color)
+    glutSolidSphere(int(6 * size_scale), 16, 16)
+    
+    # Surrounding structure - cage-like
+    glColor3f(*dark_detail)
+    glRotatef(45, 1, 0, 0)
+    glutSolidSphere(int(1.8 * size_scale), int(8 * size_scale), 16)
+    
+    # Second ring at different angle
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(int(1.8 * size_scale), int(8 * size_scale), 16)
+    
+    # Energy conduits to weapons and engines
+    glColor3f(*accent_color)
+    glRotatef(-45, 0, 1, 0)
+    glTranslatef(-10 * size_scale, 0, -10 * size_scale)
+    glScalef(1.2 * size_scale, 0.15 * size_scale, 0.15 * size_scale)
+    glutSolidCube(25)
+    glPopMatrix()
+    
+    # Add spine-like structures along the top - new menacing feature
+    for z_pos in range(-20, 21, 10):
+        glPushMatrix()
+        glColor3f(*dark_detail)
+        glTranslatef(z_pos * size_scale * 0.7, 0, 15 * size_scale)
+        glRotatef(90, 1, 0, 0)
+        glutSolidSphere(int(2 * size_scale), int(10 * size_scale), 6)
+        glPopMatrix()
+    
+    # Thruster flame effects - enhanced for more menacing look
+    glPushMatrix()
+    glTranslatef(-65 * size_scale, 0, 0)
+    glRotatef(-90, 0, 1, 0)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    
+    # Outer flame
+    glColor3f(0.8, 0.1, 0.0)  # Red flame
+    glutSolidSphere(int(9 * size_scale), int(25 * size_scale), 12)
+    
+    # Middle flame
+    glColor3f(1.0, 0.2, 0.0)  # Orange-red
+    glutSolidSphere(int(7 * size_scale), int(20 * size_scale), 12)
+    
+    # Inner flame - brighter core
+    glColor3f(1.0, 0.5, 0.0)  # Bright orange inner flame
+    glutSolidSphere(int(4 * size_scale), int(15 * size_scale), 8)
+    
+    glDisable(GL_BLEND)
+    glPopMatrix()
+
+def draw_boss_spaceship():
+    """Draw the final boss spaceship with enhanced purple-black coloring and massive size"""
+    # Colors for the final boss - purple and black theme
+    hull_color = (0.06, 0.02, 0.08)       # Almost black with purple tint
+    accent_color = (0.6, 0.0, 0.8)        # Bright purple accent
+    highlight_color = (0.3, 0.0, 0.4)     # Dark purple highlight
+    energy_core_color = (1.0, 0.2, 1.0)   # Bright purple energy
+    dark_detail = (0.12, 0.04, 0.15)      # Very dark purple for details
+    
+    # Boss is much larger - 2.5 times the size of standard enemies
+    size_scale = 6.0  # INSANELY HUGE! (was 2.5)
+    
+    # Main hull - massive and imposing
+    glPushMatrix()
+    glColor3f(*hull_color)
+    glScalef(2.6 * size_scale, 1.1 * size_scale, 0.6 * size_scale)  # Larger, wider design
+    glutSolidCube(25)
+    glPopMatrix()
+    
+    # Upper structure - more angular and menacing
+    glPushMatrix()
+    glColor3f(*highlight_color)
+    glTranslatef(0, 0, 9 * size_scale)
+    glScalef(2.1 * size_scale, 0.9 * size_scale, 0.25 * size_scale)
+    glutSolidCube(25)
+    
+    # Add ridged detail on top
+    glColor3f(*dark_detail)
+    glTranslatef(0, 0, 3)
+    glScalef(0.9, 0.7, 0.5)
+    glutSolidCube(25)
+    glPopMatrix()
+    
+    # Command module at front - more massive and imposing
+    glPushMatrix()
+    glColor3f(*highlight_color)
+    glTranslatef(35 * size_scale, 0, 0)
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(int(14 * size_scale), int(35 * size_scale), 16)  # Longer, sharper nose
+    
+    # Add menacing detail to the front
+    glColor3f(*accent_color)
+    glTranslatef(0, 0, 15 * size_scale)
+    glRotatef(90, 1, 0, 0)
+    glutSolidSphere(int(2 * size_scale), int(8 * size_scale), 16)
+    
+    # Additional nose spike
+    glColor3f(*dark_detail)
+    glRotatef(-90, 1, 0, 0)
+    glTranslatef(0, 0, -5 * size_scale)
+    glutSolidSphere(int(3 * size_scale), int(15 * size_scale), 8)
+    glPopMatrix()
+    
+    # Side wings/fins - more aggressive design with spikes
+    for y_offset, angle in [(28 * size_scale, 25), (-28 * size_scale, -25)]:  # Wider wingspan
+        glPushMatrix()
+        glColor3f(*accent_color)
+        glTranslatef(0, y_offset, 0)
+        glRotatef(angle, 0, 0, 1)
+        glScalef(1.4 * size_scale, 0.15 * size_scale, 0.12 * size_scale)  # Longer wings
+        glutSolidCube(50)
+        
+        # Add wing details - ridges
+        glColor3f(*dark_detail)
+        glTranslatef(-15, 0, 0)
+        glScalef(0.15, 0.8, 1.0)
+        glutSolidCube(50)
+        
+        glTranslatef(30, 0, 0)
+        glutSolidCube(50)
+        
+        glTranslatef(30, 0, 0)
+        glutSolidCube(50)
+        glPopMatrix()
+        
+        # Add spikes to wing tips
+        glPushMatrix()
+        glColor3f(*dark_detail)
+        # Calculate position at wing tip
+        wing_tip_x = 0
+        wing_tip_y = y_offset + math.sin(math.radians(angle)) * 35 * size_scale
+        wing_tip_z = 0
+        glTranslatef(wing_tip_x, wing_tip_y, wing_tip_z)
+        glRotatef(angle + 90, 0, 0, 1)
+        glutSolidSphere(int(2 * size_scale), int(12 * size_scale), 8)
+        glPopMatrix()
+    
+    # Additional side wings for more imposing silhouette
+    for y_offset, angle in [(35 * size_scale, 40), (-35 * size_scale, -40)]:
+        glPushMatrix()
+        glColor3f(*highlight_color)
+        glTranslatef(-20 * size_scale, y_offset, 0)
+        glRotatef(angle, 0, 0, 1)
+        glScalef(1.0 * size_scale, 0.15 * size_scale, 0.1 * size_scale)
+        glutSolidCube(60)
+        glPopMatrix()
+    
+    # Energy weapons on top - more and bigger, arranged in a threatening pattern
+    for x_offset, y_offset in [(-25 * size_scale, 0), (-12 * size_scale, 0), (0, 0), (12 * size_scale, 0), (25 * size_scale, 0), 
+                          (-20 * size_scale, 18 * size_scale), (20 * size_scale, 18 * size_scale),
+                          (-20 * size_scale, -18 * size_scale), (20 * size_scale, -18 * size_scale),
+                          (-10 * size_scale, 30 * size_scale), (10 * size_scale, 30 * size_scale),
+                          (-10 * size_scale, -30 * size_scale), (10 * size_scale, -30 * size_scale)]:
+        glPushMatrix()
+        glTranslatef(x_offset, y_offset, 12 * size_scale)
+        # Weapon base
+        glColor3f(*dark_detail)
+        glutSolidSphere(int(3.5 * size_scale), 10, 10)
+        # Weapon barrel
+        glColor3f(*accent_color)
+        glRotatef(-90, 1, 0, 0)
+        glutSolidSphere(int(2 * size_scale), int(12 * size_scale), 10)
+        
+        # Add glowing tip
+        glTranslatef(0, 0, 12 * size_scale)
+        glColor3f(1.0, 0.3, 1.0)  # Purple glow
+        glutSolidSphere(int(1.5 * size_scale), 8, 8)
+        glPopMatrix()
+    
+    # Rear section with larger thruster - more detailed and intimidating
+    glPushMatrix()
+    glTranslatef(-45 * size_scale, 0, 0)
+    
+    # Thruster housing
+    glColor3f(*hull_color)
+    glScalef(0.5 * size_scale, 0.6 * size_scale, 0.6 * size_scale)  # Larger thruster
+    glutSolidCube(35)
+    
+    # Thruster rings/details
+    glColor3f(*dark_detail)
+    glTranslatef(-20, 0, 0)
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(4, 18, 16)
+    
+    # Additional detail
+    glColor3f(*accent_color)
+    glTranslatef(0, 0, 0)
+    glutSolidSphere(2, 12, 12)
+    glPopMatrix()
+    
+    # Engine glow - enhanced with layered, menacing effect
+    glPushMatrix()
+    glTranslatef(-55 * size_scale, 0, 0)
+    
+    # Inner core - bright
+    glColor3f(0.8, 0.3, 1.0)  # Purple core
+    glutSolidSphere(int(6 * size_scale), 16, 16)
+    
+    # Outer glow - with transparency for effect
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    glColor3f(0.6, 0.1, 0.8)  # Semi-transparent purple
+    glutSolidSphere(int(10 * size_scale), 16, 16)
+    glDisable(GL_BLEND)
+    glPopMatrix()
+    
+    # Side thrusters - enhanced and more intimidating
+    for y_offset in [-20 * size_scale, 20 * size_scale]:  # Wider spacing
+        glPushMatrix()
+        glTranslatef(-43 * size_scale, y_offset, 0)
+        # Thruster housing
+        glColor3f(*dark_detail)
+        glScalef(0.3 * size_scale, 0.3 * size_scale, 0.3 * size_scale)
+        glutSolidCube(20)
+        
+        # Add detail ring
+        glColor3f(*accent_color)
+        glTranslatef(-12, 0, 0)
+        glRotatef(90, 0, 1, 0)
+        glutSolidSphere(3, 9, 12)
+        
+        # Thruster glow
+        glColor3f(0.8, 0.2, 1.0)  # Brighter purple glow
+        glTranslatef(0, 0, 0)
+        glutSolidSphere(int(5 * size_scale), 12, 12)
+        glPopMatrix()
+    
+    # Energy core on top - larger, more complex and menacing
+    glPushMatrix()
+    glTranslatef(-25 * size_scale, 0, 20 * size_scale)  # Higher position
+    
+    # Pulsing core
+    glColor3f(*energy_core_color)
+    glutSolidSphere(int(8 * size_scale), 16, 16)
+    
+    # Surrounding structure - cage-like
+    glColor3f(*dark_detail)
+    glRotatef(45, 1, 0, 0)
+    glutSolidSphere(int(1.8 * size_scale), int(10 * size_scale), 16)
+    
+    # Second ring at different angle
+    glRotatef(90, 0, 1, 0)
+    glutSolidSphere(int(1.8 * size_scale), int(10 * size_scale), 16)
+    
+    # Energy conduits to weapons and engines
+    glColor3f(*accent_color)
+    glRotatef(-45, 0, 1, 0)
+    glTranslatef(-10 * size_scale, 0, -10 * size_scale)
+    glScalef(1.2 * size_scale, 0.15 * size_scale, 0.15 * size_scale)
+    glutSolidCube(25)
+    glPopMatrix()
+    
+    # Add spine-like structures along the top - new menacing feature
+    for z_pos in range(-20, 21, 8):  # More spines, closer together
+        glPushMatrix()
+        glColor3f(*dark_detail)
+        glTranslatef(z_pos * size_scale * 0.7, 0, 15 * size_scale)
+        glRotatef(90, 1, 0, 0)
+        glutSolidSphere(int(2 * size_scale), int(10 * size_scale), 6)
+        glPopMatrix()
+    
+    # Add additional armor plates to make it bulkier
+    for x_offset, y_factor in [(-20, 1), (0, 1.1), (20, 1)]:
+        glPushMatrix()
+        glColor3f(*hull_color)
+        glTranslatef(x_offset * size_scale, 0, 5 * size_scale)
+        glScalef(0.5 * size_scale, 1.0 * size_scale * y_factor, 0.3 * size_scale)
+        glutSolidCube(30)
+        glPopMatrix()
+    
+    # Thruster flame effects - enhanced for more menacing look
+    glPushMatrix()
+    glTranslatef(-65 * size_scale, 0, 0)
+    glRotatef(-90, 0, 1, 0)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    
+    # Outer flame
+    glColor3f(0.7, 0.2, 1.0)  # Purple flame
+    glutSolidSphere(int(8 * size_scale), int(25 * size_scale), 16)
+    
+    # Middle flame
+    glColor3f(0.9, 0.3, 1.0)  # Lighter purple
+    glutSolidSphere(int(6 * size_scale), int(20 * size_scale), 12)
+    
+    # Inner flame
+    glColor3f(1.0, 0.5, 1.0)  # Bright purple inner flame
+    glutSolidSphere(int(4 * size_scale), int(15 * size_scale), 8)
+    
+    glDisable(GL_BLEND)
+    glPopMatrix()
+
+def draw_laser_beam(is_enemy=False):
     """Draw a laser beam"""
-    glColor3f(1, 0, 0)  # Bright red for laser
+    if is_enemy:
+        glColor3f(1, 0.3, 0)  # Orange-red for enemy lasers
+    else:
+        glColor3f(0, 0.8, 1)  # Cyan-blue for player lasers
     
     # Draw a long, thin beam using a scaled cube
     glPushMatrix()
@@ -724,11 +1114,11 @@ def draw_laser_beam():
 def draw_explosion(size):
     """Draw an explosion"""
     glColor3f(1, 0.5, 0)  # Orange
-    glutSolidSphere(size, 10, 10)
+    glutSolidSphere(int(size), 10, 10)
     
     glPushMatrix()
     glColor3f(1, 0, 0)  # Red
-    glutSolidSphere(size * 0.7, 8, 8)
+    glutSolidSphere(int(size * 0.7), 8, 8)
     glPopMatrix()
 
 def draw_radar():
@@ -746,10 +1136,13 @@ def draw_radar():
     
     # Draw radar circle outline (no background fill)
     glColor3f(0, 0.7, 0.7)  # Cyan outline
-    glBegin(GL_LINE_LOOP)
-    for i in range(361):
-        angle = i * math.pi / 180
-        glVertex2f(100 + 80 * math.cos(angle), 100 + 80 * math.sin(angle))
+    
+    glBegin(GL_LINES)
+    for i in range(360):
+        angle1 = i * math.pi / 180
+        angle2 = (i + 1) * math.pi / 180
+        glVertex2f(100 + 80 * math.cos(angle1), 100 + 80 * math.sin(angle1))
+        glVertex2f(100 + 80 * math.cos(angle2), 100 + 80 * math.sin(angle2))
     glEnd()
     
     # Draw radar grid
@@ -806,18 +1199,95 @@ def draw_radar():
     glPopMatrix()
 
 def draw_hud():
-    """Draw the heads-up display (HUD) without health bar"""
+    """Draw the heads-up display (HUD)"""
+    global game_won
+    
+    # Player health and lives display (top left)
+    health_percentage = player_health / player_max_health * 100
+    draw_text(10, 770, f"HEALTH: {int(health_percentage)}%")
+    draw_text(10, 740, f"LIVES: {player_lives}")
+    
+    # Health bar (graphical)
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, 1000, 0, 800)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    
+    # Draw health bar background (dark gray)
+    glColor3f(0.2, 0.2, 0.2)
+    glBegin(GL_QUADS)
+    glVertex2f(10, 710)
+    glVertex2f(210, 710)
+    glVertex2f(210, 730)
+    glVertex2f(10, 730)
+    glEnd()
+    
+    # Draw health bar (color based on health percentage)
+    if health_percentage > 60:
+        glColor3f(0, 1, 0.3)  # Green for high health
+    elif health_percentage > 30:
+        glColor3f(1, 1, 0)  # Yellow for medium health
+    else:
+        glColor3f(1, 0.3, 0)  # Red for low health
+    
+    bar_width = 200 * (player_health / player_max_health)
+    glBegin(GL_QUADS)
+    glVertex2f(10, 710)
+    glVertex2f(10 + bar_width, 710)
+    glVertex2f(10 + bar_width, 730)
+    glVertex2f(10, 730)
+    glEnd()
+    
+    # Draw Boss health bar when in level 4
+    if player_level == 4:
+        # Find the boss if it exists
+        boss_health = 0
+        for enemy in enemies:
+            if len(enemy) > 7 and enemy[7] == "boss" and len(enemy) > 8:
+                boss_health = enemy[8]
+                break
+        
+        if boss_health > 0:
+            # Draw boss health text
+            glColor3f(1, 0, 0)  # Red text for boss health
+            draw_text(400, 750, f"BOSS: {boss_health}/10000", GLUT_BITMAP_HELVETICA_18)
+            
+            # Draw boss health bar (background)
+            glColor3f(0.3, 0.0, 0.0)  # Dark red background
+            glBegin(GL_QUADS)
+            glVertex2f(300, 730)
+            glVertex2f(700, 730)
+            glVertex2f(700, 745)
+            glVertex2f(300, 745)
+            glEnd()
+            
+            # Draw boss health bar (foreground)
+            health_ratio = boss_health / 10000.0
+            glColor3f(1.0, 0.0, 0.0)  # Bright red for boss health
+            glBegin(GL_QUADS)
+            glVertex2f(300, 730)
+            glVertex2f(300 + 400 * health_ratio, 730)
+            glVertex2f(300 + 400 * health_ratio, 745)
+            glVertex2f(300, 745)
+            glEnd()
+    
+    # Restore matrix state
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+    
     # Speed indicator
-    draw_text(10, 750, f"SPEED: {int(player_speed * 200)} KPH")
+    draw_text(10, 680, f"SPEED: {int(player_speed * 200)} KPH")
     
     # Score
-    draw_text(10, 720, f"SCORE: {score}")
-    
-    # Current level
-    draw_text(10, 690, f"LEVEL: {current_level}")
+    draw_text(10, 650, f"SCORE: {score}")
     
     # Ammo
-    draw_text(800, 750, f"LASERS: {len(bullets)}/50")
+    draw_text(800, 750, f"LASERS: {len(player_bullets)}/50")
     
     # Distance indicator
     if enemies:
@@ -832,157 +1302,49 @@ def draw_hud():
                 closest_dist = dist
         draw_text(800, 720, f"TARGET: {int(closest_dist)} M")
     
-    # Level objectives
-    level_data = LEVEL_CONFIG.get(current_level, LEVEL_CONFIG[1])
-    next_level_score = level_data["next_level_score"]
+    # Player experience and level display
+    draw_text(800, 780, f"EXP: {player_experience}")  # Top right
     
-    if current_level < len(LEVEL_CONFIG):
-        progress = min(1.0, score / next_level_score)
-        draw_text(400, 750, f"LEVEL PROGRESS: {int(progress * 100)}%")
-        draw_text(400, 720, f"NEXT LEVEL: {next_level_score - score} PTS")
+    # Make level display more prominent, especially for level 4
+    if player_level == 4:
+        # Draw a more noticeable level indicator for the final level
+        draw_text(450, 780, "FINAL LEVEL", GLUT_BITMAP_TIMES_ROMAN_24)
     else:
-        draw_text(400, 750, "FINAL LEVEL")
+        draw_text(500, 780, f"LEVEL: {player_level}")  # Top center
+    
+    # If the player has won, display the victory message
+    if game_won:
+        # Static victory indicator for defeating the boss
+        draw_text(400, 500, "BOSS DEFEATED - YOU WON!", GLUT_BITMAP_HELVETICA_18)
+        draw_text(380, 300, f"Current Score: {score}", GLUT_BITMAP_HELVETICA_18)
+        draw_text(390, 350, "Press 'R' to restart", GLUT_BITMAP_HELVETICA_18)
 
-def draw_health_bar():
-    """Draw an improved health bar with numeric indicators and segments"""
-    # Set up orthographic projection for 2D overlay
-    glMatrixMode(GL_PROJECTION)
-    glPushMatrix()
-    glLoadIdentity()
-    gluOrtho2D(0, 1000, 0, 800)
-    
-    glMatrixMode(GL_MODELVIEW)
-    glPushMatrix()
-    glLoadIdentity()
-    
-    # Ensure player_health is properly clamped
-    clamped_health = max(0, min(player_health, max_player_health))
-    health_percent = clamped_health / max_player_health
-    
-    # Dynamic health bar color based on health percentage
-    if health_percent > 0.6:  # More than 60% health - green
-        bar_color = (0.0, 1.0, 0.0)
-    elif health_percent > 0.3:  # Between 30% and 60% health - yellow
-        bar_color = (1.0, 1.0, 0.0)
-    else:  # Less than 30% health - red
-        bar_color = (1.0, 0.0, 0.0)
-    
-    # Health bar background with border effect
-    glColor3f(0.2, 0.2, 0.2)  # Dark gray background
-    glBegin(GL_QUADS)
-    glVertex2f(8, 648)
-    glVertex2f(212, 648)
-    glVertex2f(212, 672)
-    glVertex2f(8, 672)
-    glEnd()
-    
-    # Health bar border
-    glColor3f(0.5, 0.5, 0.5)  # Medium gray border
-    glLineWidth(2.0)
-    glBegin(GL_LINE_LOOP)
-    glVertex2f(10, 650)
-    glVertex2f(210, 650)
-    glVertex2f(210, 670)
-    glVertex2f(10, 670)
-    glEnd()
-    glLineWidth(1.0)
-    
-    # Draw health bar with segments for better visualization
-    if health_percent > 0:
-        # Number of segments in the health bar
-        num_segments = 10
-        segment_width = 200 / num_segments
-        filled_segments = int(health_percent * num_segments)
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, 1000, 0, 800)
         
-        # Draw filled segments
-        for i in range(filled_segments):
-            # Calculate segment position
-            x_start = 10 + i * segment_width
-            
-            # Draw segment with a small gap between segments
-            gap = 1
-            glColor3f(*bar_color)
-            glBegin(GL_QUADS)
-            glVertex2f(x_start, 652)
-            glVertex2f(x_start + segment_width - gap, 652)
-            glVertex2f(x_start + segment_width - gap, 668)
-            glVertex2f(x_start, 668)
-            glEnd()
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
         
-        # Add highlight effect to filled segments
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
-        glColor4f(1.0, 1.0, 1.0, 0.3)  # White highlight with 30% opacity
-        glBegin(GL_QUADS)
-        glVertex2f(10, 664)  # Top half of the bar
-        glVertex2f(10 + filled_segments * segment_width, 664)
-        glVertex2f(10 + filled_segments * segment_width, 668)
-        glVertex2f(10, 668)
-        glEnd()
-        glDisable(GL_BLEND)
-    
-    # Draw health numbers with shadow effect for better visibility
-    # Shadow
-    glColor3f(0.0, 0.0, 0.0)
-    draw_text(14, 651, f"{int(clamped_health)} / {max_player_health}", GLUT_BITMAP_9_BY_15)
-    
-    # Actual text (color varies based on health)
-    glColor3f(*bar_color)
-    draw_text(15, 652, f"{int(clamped_health)} / {max_player_health}", GLUT_BITMAP_9_BY_15)
-    
-    # Add warning indicator for low health (below 30%)
-    if health_percent <= 0.3 and health_percent > 0:
-        # Make the warning blink using a sine wave based on time
-        blink_rate = math.sin(glutGet(GLUT_ELAPSED_TIME) / 100.0) * 0.5 + 0.5
-        
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
-        glColor4f(1.0, 0.0, 0.0, blink_rate * 0.8)  # Blinking red
-        
-        # Draw warning icon
-        glBegin(GL_TRIANGLES)
-        glVertex2f(222, 650)
-        glVertex2f(232, 670)
-        glVertex2f(212, 670)
-        glEnd()
-        
-        # Draw exclamation mark inside warning
-        glColor4f(1.0, 1.0, 1.0, blink_rate)
-        glLineWidth(2.0)
-        glBegin(GL_LINES)
-        glVertex2f(222, 655)
-        glVertex2f(222, 665)
-        glEnd()
-        glBegin(GL_POINTS)
-        glVertex2f(222, 667)
-        glEnd()
-        glLineWidth(1.0)
-        glDisable(GL_BLEND)
-    
-    # Damage indicator effect (flashing red when recently damaged)
-    if damage_cooldown > 0:
-        # Pulsing alpha based on cooldown
-        alpha = 0.7 * (damage_cooldown / 30.0)
-        
+        # Semi-transparent dark overlay
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        glColor4f(1.0, 0.0, 0.0, alpha)
+        glColor3f(0.0, 0.0, 0.0)
         
-        # Full screen red flash effect
         glBegin(GL_QUADS)
         glVertex2f(0, 0)
         glVertex2f(1000, 0)
         glVertex2f(1000, 800)
         glVertex2f(0, 800)
         glEnd()
+        # Restore matrix state
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
         
-        glDisable(GL_BLEND)
-    
-    # Reset matrix state
-    glPopMatrix()
-    glMatrixMode(GL_PROJECTION)
-    glPopMatrix()
-    glMatrixMode(GL_MODELVIEW)
 
 def draw_battlefield():
     """Draw the space battlefield with animated floor grid"""
@@ -990,37 +1352,12 @@ def draw_battlefield():
     glPointSize(2)
     glBegin(GL_POINTS)
     glColor3f(1, 1, 1)  # White stars
-    for i in range(500):
-        x = random.uniform(-BATTLEFIELD_SIZE*2, BATTLEFIELD_SIZE*2)
-        y = random.uniform(-BATTLEFIELD_SIZE*2, BATTLEFIELD_SIZE*2)
-        z = random.uniform(-BATTLEFIELD_SIZE, 0)  # Stars below the battlefield
+    for i in range(1000):  # Doubled the number of stars
+        x = random.uniform(-BATTLEFIELD_SIZE*3, BATTLEFIELD_SIZE*3)  # Extended star field
+        y = random.uniform(-BATTLEFIELD_SIZE*3, BATTLEFIELD_SIZE*3)  # Extended star field
+        z = random.uniform(-BATTLEFIELD_SIZE*2, 0)  # Stars below the battlefield
         glVertex3f(x, y, z)
     glEnd()
-    
-    # Draw a nebula effect using transparent quads
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    
-    glBegin(GL_QUADS)
-    for i in range(20):
-        x = random.uniform(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE)
-        y = random.uniform(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE)
-        z = random.uniform(-500, -100)
-        size = random.uniform(100, 300)
-        
-        r = random.uniform(0, 0.5)
-        g = random.uniform(0, 0.5)
-        b = random.uniform(0.5, 1.0)
-        a = 0.2  # Alpha (transparency)
-        
-        glColor4f(r, g, b, a)
-        glVertex3f(x - size, y - size, z)
-        glVertex3f(x + size, y - size, z)
-        glVertex3f(x + size, y + size, z)
-        glVertex3f(x - size, y + size, z)
-    glEnd()
-    
-    glDisable(GL_BLEND)
     
     # Draw the animated grid floor
     draw_animated_floor()
@@ -1061,65 +1398,6 @@ def draw_animated_floor():
         glVertex3f(grid_size, grid_pos, 0)
     
     glEnd()
-    
-    # Add additional "flowing" lines for enhanced speed effect
-    draw_flow_lines()
-
-def draw_flow_lines():
-    """Draw flowing lines that enhance the speed effect"""
-    # Number of flow lines
-    num_flow_lines = 50
-    
-    # Flow line parameters
-    flow_line_length = 100
-    flow_line_width = 2
-    
-    # Set up flow line rendering
-    glLineWidth(flow_line_width)
-    glEnable(GL_LINE_SMOOTH)
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    
-    glBegin(GL_LINES)
-    
-    for i in range(num_flow_lines):
-        # Random position within battlefield
-        x = random.uniform(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE)
-        y = random.uniform(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE)
-        
-        # Calculate position relative to player
-        dx = x - player_pos[0]
-        dy = y - player_pos[1]
-        distance = math.sqrt(dx*dx + dy*dy)
-        
-        # Only draw lines in front of player for better effect
-        rad = player_rotation * math.pi / 180
-        forward_x = math.cos(rad)
-        forward_y = math.sin(rad)
-        
-        # Check if line is in front of player
-        dot_product = dx * forward_x + dy * forward_y
-        
-        # Fade alpha based on distance
-        alpha = max(0, 1 - distance / BATTLEFIELD_SIZE)
-        
-        if dot_product > 0:
-            # Line is in front, make it flow toward the player
-            glColor4f(0.0, 0.7, 1.0, alpha * 0.7)  # Blue line with alpha
-            
-            # Starting point
-            glVertex3f(x, y, 10)
-            
-            # Endpoint (flow toward player's view direction)
-            end_x = x - forward_x * flow_line_length
-            end_y = y - forward_y * flow_line_length
-            glVertex3f(end_x, end_y, 10)
-    
-    glEnd()
-    
-    glDisable(GL_LINE_SMOOTH)
-    glDisable(GL_BLEND)
-    glLineWidth(1)  # Reset line width
 
 def draw_player():
     """Draw the player's spaceship"""
@@ -1130,64 +1408,54 @@ def draw_player():
     glPopMatrix()
 
 def draw_enemies():
-    """Draw enemy spaceships with their health bars"""
+    """Draw enemy spaceships"""
     for enemy in enemies:
         glPushMatrix()
         glTranslatef(enemy[0], enemy[1], enemy[2])
         glRotatef(enemy[3], 0, 0, 1)  # Rotate around z-axis
         
-        # Draw appropriate enemy ship based on enemy type (element at index 4)
-        draw_enemy_ship(enemy[4])
-        
-        # Draw health bar above enemy
-        # Get max health for this enemy type
-        max_health = ENEMY_TYPES[enemy[4]]["health"]
-        health_percent = enemy[5] / max_health
-        
-        glTranslatef(0, 0, 30)  # Position above ship
-        
-        # Draw health bar background (dark red)
-        glColor3f(0.3, 0.0, 0.0)
-        glBegin(GL_QUADS)
-        glVertex3f(-20, -3, 0)
-        glVertex3f(20, -3, 0)
-        glVertex3f(20, 3, 0)
-        glVertex3f(-20, 3, 0)
-        glEnd()
-        
-        # Draw health bar (green to red based on health percentage)
-        r = min(1.0, 2.0 - 2.0 * health_percent)  # Red increases as health decreases
-        g = min(1.0, 2.0 * health_percent)        # Green increases as health increases
-        glColor3f(r, g, 0.0)
-        glBegin(GL_QUADS)
-        glVertex3f(-20, -3, 0.1)
-        glVertex3f(-20 + 40 * health_percent, -3, 0.1)
-        glVertex3f(-20 + 40 * health_percent, 3, 0.1)
-        glVertex3f(-20, 3, 0.1)
-        glEnd()
+        # Check enemy type (stored in enemy[7])
+        if len(enemy) > 7:
+            if enemy[7] == "golden":
+                draw_golden_enemy_ship()
+            elif enemy[7] == "black-red":
+                draw_black_red_enemy_ship()
+            elif enemy[7] == "boss":
+                draw_boss_spaceship()
+            else:
+                draw_spaceship(False)
+        else:
+            draw_spaceship(False)
         
         glPopMatrix()
 
 def draw_bullets():
     """Draw laser beams"""
-    for bullet in bullets:
+    for bullet in player_bullets:
         glPushMatrix()
         glTranslatef(bullet[0], bullet[1], bullet[2])
         glRotatef(bullet[3], 0, 0, 1)  # Rotate to match firing direction
-        draw_laser_beam()
+        draw_laser_beam(False)  # Player lasers
+        glPopMatrix()
+    
+    for bullet in enemy_bullets:
+        glPushMatrix()
+        glTranslatef(bullet[0], bullet[1], bullet[2])
+        glRotatef(bullet[3], 0, 0, 1)  # Rotate to match firing direction
+        draw_laser_beam(True)  # Enemy lasers
         glPopMatrix()
 
 def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement and actions
     """
-    global player_pos, player_rotation, player_speed, player_boost_speed, bullets, game_over, camera_mode, grid_animation_speed, camera_distance
+    global player_pos, player_rotation, player_speed, player_boost_speed, player_bullets, game_over, camera_mode, grid_animation_speed, camera_distance
     global moving_forward, moving_backward, thruster_glow_intensity
     
     if key == b'\x1b':  # ESC key
         sys.exit(0)
         
-    if game_over:
+    if game_over or game_won:
         if key == b'r':  # Reset game
             reset_game()
         return
@@ -1207,7 +1475,6 @@ def keyboardListener(key, x, y):
             player_pos[1] = new_y
             moving_forward = True
             moving_backward = False
-            thruster_glow_intensity = 0.8  # Full thruster effect
         else:
             # If would hit boundary, still allow partial movement (slide along boundary)
             if abs(new_x) < BATTLEFIELD_SIZE:
@@ -1215,7 +1482,6 @@ def keyboardListener(key, x, y):
             if abs(new_y) < BATTLEFIELD_SIZE:
                 player_pos[1] = new_y
             moving_forward = True
-            thruster_glow_intensity = 0.5  # Reduced thruster effect at boundary
     
     # Move backward (S key) with increased speed
     if key == b's':
@@ -1232,7 +1498,6 @@ def keyboardListener(key, x, y):
             player_pos[1] = new_y
             moving_backward = True
             moving_forward = False
-            thruster_glow_intensity = 0.4  # Medium thruster effect for reverse
         else:
             # If would hit boundary, still allow partial movement (slide along boundary)
             if abs(new_x) < BATTLEFIELD_SIZE:
@@ -1240,7 +1505,6 @@ def keyboardListener(key, x, y):
             if abs(new_y) < BATTLEFIELD_SIZE:
                 player_pos[1] = new_y
             moving_backward = True
-            thruster_glow_intensity = 0.2  # Reduced thruster effect at boundary
     
     # Reset movement flags when releasing W or S
     if key not in (b'w', b's'):
@@ -1307,7 +1571,7 @@ def keyboardListener(key, x, y):
         
     # Fire lasers (Shift key)
     if key in (b'\x10', b' '):  # Left shift (0x10) or spacebar as alternative
-        if len(bullets) < 50:  # Limit number of laser beams
+        if len(player_bullets) < 50:  # Limit number of laser beams
             rad = player_rotation * math.pi / 180
             offsets = [
                 (-18, 18),   # Far left
@@ -1325,7 +1589,7 @@ def keyboardListener(key, x, y):
                     player_boost_speed + 20,  # Faster bullet speed based on boosted speed
                     200  # Increased lifetime for longer range
                 ]
-                bullets.append(laser)
+                player_bullets.append(laser)
 
 def specialKeyListener(key, x, y):
     """
@@ -1356,179 +1620,36 @@ def mouseListener(button, state, x, y):
     # Mouse click functionality moved to keyboard handler
     pass
 
-def update_enemies():
-    """Update enemy behavior and movement"""
-    global enemies, enemy_bullets
-    
-    for enemy in enemies:
-        # Get enemy type and characteristics
-        enemy_type = enemy[4]
-        type_data = ENEMY_TYPES[enemy_type]
-        
-        # Calculate distance to player
-        dx = player_pos[0] - enemy[0]
-        dy = player_pos[1] - enemy[1]
-        dz = player_pos[2] - enemy[2]
-        distance_to_player = math.sqrt(dx*dx + dy*dy + dz*dz)
-        
-        # Calculate angle to player in degrees
-        angle_to_player = math.degrees(math.atan2(dy, dx)) % 360
-        
-        # Different behaviors based on distance to player
-        follow_distance = type_data["follow_distance"]
-        firing_distance = type_data["firing_distance"]
-        
-        if distance_to_player < follow_distance:
-            # Player is within detection range - follow player
-            
-            # Gradually rotate towards player
-            # Find the shortest way to rotate to the player
-            angle_diff = (angle_to_player - enemy[3]) % 360
-            if angle_diff > 180:
-                angle_diff -= 360
-                
-            # Set rotation speed based on enemy type (higher types rotate faster)
-            rotation_speed = 2 + enemy_type * 0.5
-            
-            # Limit the rotation to the rotation speed
-            if angle_diff > rotation_speed:
-                enemy[3] = (enemy[3] + rotation_speed) % 360
-            elif angle_diff < -rotation_speed:
-                enemy[3] = (enemy[3] - rotation_speed) % 360
-            else:
-                # We're close enough, set exact angle
-                enemy[3] = angle_to_player
-            
-            # Move towards player if not too close
-            min_distance = 200  # Don't get closer than this
-            
-            if distance_to_player > min_distance:
-                # Speed varies by enemy type
-                speed = type_data["speed"]
-                
-                # Calculate actual direction to player (not just current facing)
-                actual_rad = math.atan2(dy, dx)
-                # Weighted average between actual direction and current direction
-                # The higher the weight (0.7), the more directly enemies will chase
-                weight = 0.7
-                move_rad = actual_rad * weight + (enemy[3] * math.pi / 180) * (1 - weight)
-                
-                # Move more directly toward player
-                enemy[0] += math.cos(move_rad) * speed
-                enemy[1] += math.sin(move_rad) * speed
-                
-                # Adjust height to be closer to player's height
-                if enemy[2] < player_pos[2] - 20:
-                    enemy[2] += 1
-                elif enemy[2] > player_pos[2] + 20:
-                    enemy[2] -= 1
-            
-            # Fire at player if within firing range
-            if distance_to_player < firing_distance:
-                # Decrease firing cooldown
-                enemy[6] -= 1
-                
-                if enemy[6] <= 0:
-                    # Reset cooldown based on firing rate
-                    enemy[6] = type_data["firing_rate"]
-                    
-                    # Fire bullet at player
-                    # Calculate a slight lead to aim where the player will be
-                    lead_factor = 0.5  # Higher value = more lead
-                    player_vel_x = 0
-                    player_vel_y = 0
-                    
-                    # Simple prediction based on player orientation
-                    if moving_forward:
-                        rad = player_rotation * math.pi / 180
-                        player_vel_x = math.cos(rad) * player_speed * lead_factor
-                        player_vel_y = math.sin(rad) * player_speed * lead_factor
-                    
-                    # Calculate aim point (leading the target)
-                    aim_x = player_pos[0] + player_vel_x
-                    aim_y = player_pos[1] + player_vel_y
-                    
-                    # Calculate angle to aim point
-                    dx_aim = aim_x - enemy[0]
-                    dy_aim = aim_y - enemy[1]
-                    aim_angle = math.degrees(math.atan2(dy_aim, dx_aim)) % 360
-                    
-                    # Create enemy bullet
-                    bullet_speed = type_data["bullet_speed"]
-                    bullet_lifetime = type_data["bullet_lifetime"]
-                    
-                    # Add slight randomness to make it less perfect
-                    aim_angle += random.uniform(-3, 3)
-                    
-                    # Fire from the front of the enemy ship
-                    rad = aim_angle * math.pi / 180
-                    bullet_x = enemy[0] + 30 * math.cos(rad)
-                    bullet_y = enemy[1] + 30 * math.sin(rad)
-                    
-                    enemy_bullets.append([
-                        bullet_x,           # x
-                        bullet_y,           # y
-                        enemy[2],           # z (same height as enemy)
-                        aim_angle,          # rotation (aiming at player)
-                        bullet_speed,       # speed
-                        bullet_lifetime,    # lifetime
-                        enemy_type          # store enemy type for damage calculation
-                    ])
-        else:
-            # Player out of range - maintain patrol pattern or random movement
-            # Simple AI - randomly change direction and move forward
-            if random.random() < 0.02:  # 2% chance to change direction
-                enemy[3] = (enemy[3] + random.uniform(-30, 30)) % 360
-            
-            # Move forward in current direction
-            rad = enemy[3] * math.pi / 180
-            speed = type_data["speed"] * 0.6  # Slower speed when patrolling
-            enemy[0] += math.cos(rad) * speed
-            enemy[1] += math.sin(rad) * speed
-        
-        # Keep enemies within battlefield bounds
-        enemy[0] = max(min(enemy[0], BATTLEFIELD_SIZE), -BATTLEFIELD_SIZE)
-        enemy[1] = max(min(enemy[1], BATTLEFIELD_SIZE), -BATTLEFIELD_SIZE)
-        
-        # Check for collision with player
-        dx = player_pos[0] - enemy[0]
-        dy = player_pos[1] - enemy[1]
-        dz = player_pos[2] - enemy[2]
-        distance = math.sqrt(dx*dx + dy*dy + dz*dz)
-        
-        if distance < 50:  # Collision with player!
-            # Apply damage to player based on enemy type if not in cooldown
-            if damage_cooldown <= 0:
-                damage = type_data["damage"] * 2  # Double damage for collisions
-                player_health = max(0, player_health - damage)  # Ensure health doesn't go below 0
-                damage_cooldown = 30  # Set damage cooldown
-                
-                # Check if player is destroyed
-                if player_health <= 0:
-                    player_health = 0
-                    game_over = True
-
 def update_game():
     """
-    Update game state - move bullets, check collisions, enemy AI, etc.
+    Update game state - move bullets, check collisions, etc.
     """
-    global bullets, enemy_bullets, enemies, score, game_over, thruster_glow_intensity, thruster_particles
-    global player_health, damage_cooldown, current_level
+    global player_bullets, enemy_bullets, enemies, score, game_over, thruster_glow_intensity
+    global player_health, player_lives, hit_flash_duration, player_experience, player_level, game_won, enemies_respawn_timer
     
-    # Gradually decrease thruster effect when not moving (neither forward nor backward)
-    if not moving_forward and not moving_backward:
-        thruster_glow_intensity = max(0.0, thruster_glow_intensity - 0.05)
+    # If the game has won, continue the game but keep the victory message
+    # Allow player to continue fighting enemies
+    if game_won:
+        # Increment the respawn timer
+        enemies_respawn_timer += 1
+        
+        # If there are no enemies, spawn new ones after a delay
+        if len(enemies) == 0 and enemies_respawn_timer > 180:  # Wait 3 seconds after victory
+            spawn_enemy("boss")
+            for i in range(5):
+                spawn_enemy("black-red")
+            for i in range(3):
+                spawn_enemy("golden")
     
-    # Update thruster particles only when thrusters are active and not moving backward
-    if thruster_glow_intensity > 0 and not moving_backward:
-        update_thruster_particles()
+    # Update hit flash effect (decreases over time)
+    if hit_flash_duration > 0:
+        hit_flash_duration -= 1
     
-    # Decrease damage cooldown timer if player recently took damage
-    if damage_cooldown > 0:
-        damage_cooldown -= 1
+    # Set thruster glow intensity to 0 (no thruster effects)
+    thruster_glow_intensity = 0.0
     
     # Update player bullets
-    for bullet in bullets[:]:  # Use a copy for safe removal
+    for bullet in player_bullets[:]:  # Use a copy for safe removal
         # Move bullet forward based on its direction
         rad = bullet[3] * math.pi / 180
         bullet[0] += math.cos(rad) * bullet[4]
@@ -1539,7 +1660,7 @@ def update_game():
         
         # Remove bullet if lifetime expired
         if bullet[5] <= 0:
-            bullets.remove(bullet)
+            player_bullets.remove(bullet)
             continue
         
         # Check for collisions with enemies
@@ -1549,45 +1670,113 @@ def update_game():
             dz = bullet[2] - enemy[2]
             distance = math.sqrt(dx*dx + dy*dy + dz*dz)
             
-            if distance < 30:  # Hit!
-                if bullet in bullets:  # Ensure bullet still exists
-                    bullets.remove(bullet)
+            # Adjust hit detection radius based on enemy type
+            hit_radius = 30
+            if len(enemy) > 7:
+                if enemy[7] == "boss":
+                    hit_radius = 50  # Boss has a larger hit radius
+                elif enemy[7] == "black-red" or enemy[7] == "golden":
+                    hit_radius = 35  # Special enemies have slightly larger hit radius
+            
+            if distance < hit_radius:  # Hit!
+                if bullet in player_bullets:  # Ensure bullet still exists
+                    player_bullets.remove(bullet)
                 
-                # Get enemy type and reduce health
-                enemy_type = enemy[4]
-                enemy[5] -= 50  # Damage amount from player bullets
+                # Boss and special enemies take multiple hits to destroy
+                if len(enemy) > 7:
+                    if enemy[7] == "boss":
+                        # Boss has a "health" parameter at index 8 if it exists
+                        if len(enemy) > 8:
+                            enemy[8] -= 100  # Each hit reduces boss health by 100
+                            if enemy[8] > 0:
+                                continue  # Boss isn't destroyed yet
+                        else:
+                            # Initialize boss health if not set
+                            enemy.append(10000)  # Boss has 10000 health
+                            continue  # Boss isn't destroyed yet
+                    elif enemy[7] == "black-red":
+                        # Black-red enemies take 3 hits
+                        if len(enemy) > 8:
+                            enemy[8] -= 1
+                            if enemy[8] > 0:
+                                continue  # Not destroyed yet
+                        else:
+                            # Initialize health
+                            enemy.append(3)
+                            continue
+                    elif enemy[7] == "golden":
+                        # Golden enemies take 2 hits
+                        if len(enemy) > 8:
+                            enemy[8] -= 1
+                            if enemy[8] > 0:
+                                continue  # Not destroyed yet
+                        else:
+                            # Initialize health
+                            enemy.append(2)
+                            continue
                 
-                # Check if enemy is destroyed
-                if enemy[5] <= 0:
-                    # Get score value for this enemy type
-                    score_value = ENEMY_TYPES[enemy_type]["score_value"]
-                    score += score_value
-                    enemies.remove(enemy)
-                    
-                    # Spawn a new enemy of appropriate type for current level
-                    level_data = LEVEL_CONFIG.get(current_level, LEVEL_CONFIG[1])
-                    enemy_types = level_data["enemy_types"]
-                    new_enemy_type = random.choice(enemy_types)
-                    
-                    # Get enemy type data
-                    type_data = ENEMY_TYPES[new_enemy_type]
-                    
-                    enemies.append([
-                        random.uniform(-BATTLEFIELD_SIZE/2, BATTLEFIELD_SIZE/2),
-                        random.uniform(-BATTLEFIELD_SIZE/2, BATTLEFIELD_SIZE/2),
-                        random.uniform(100, 500),
-                        random.uniform(0, 360),
-                        new_enemy_type,                  # enemy type
-                        type_data["health"],             # health
-                        0,                               # firing cooldown
-                        0                                # behavior state
-                    ])
+                enemies.remove(enemy)
+                score += 100
                 
-                # We've processed this hit, move on to next bullet
+                # Increase player experience
+                player_experience += 10
+                
+                # Check if we're in level 4 and just defeated a boss
+                if player_level == 4 and len(enemy) > 7 and enemy[7] == "boss":
+                    game_won = True
+                
+                # Normal level up check
+                if player_experience >= 100:
+                    player_level += 1
+                    player_experience -= 100  # Reset experience for next level
+                    
+                    # Clear all existing enemies regardless of level
+                    enemies.clear()
+                    
+                    # Special event for level 4 (final boss level)
+                    if player_level == 4:
+                        # Spawn 1 boss spaceship
+                        spawn_enemy("boss")
+                        
+                        # Spawn 3 black-red enemies as the boss's guards
+                        for i in range(3):
+                            spawn_enemy("black-red")
+                    
+                    # Special event for level 3
+                    elif player_level == 3:
+                        # Spawn 9 black-red enemies
+                        for i in range(9):
+                            spawn_enemy("black-red")
+                            
+                        # Spawn 5 golden enemies
+                        for i in range(5):
+                            spawn_enemy("golden")
+                    # Original special event for other level-ups
+                    else:
+                        # Spawn 8 golden enemies
+                        for i in range(8):
+                            spawn_enemy("golden")
+                            
+                        # Spawn 5 red enemies
+                        for i in range(5):
+                            spawn_enemy("red")
+                else:
+                    # Only spawn a new enemy if it wasn't a level up event and we're not in level 4
+                    if player_level < 4 and not game_won:
+                        spawn_enemy("red")
+                    elif game_won and len(enemies) < 5:
+                        # If game is won (beat level 4 boss), spawn random enemies occasionally
+                        enemy_types = ["red", "golden", "black-red"]
+                        spawn_enemy(random.choice(enemy_types))
+                
                 break
     
+    # Skip updates if game is over
+    if game_over:
+        return
+    
     # Update enemy bullets
-    for bullet in enemy_bullets[:]:  # Use a copy for safe removal
+    for bullet in enemy_bullets[:]:
         # Move bullet forward based on its direction
         rad = bullet[3] * math.pi / 180
         bullet[0] += math.cos(rad) * bullet[4]
@@ -1607,140 +1796,308 @@ def update_game():
         dz = bullet[2] - player_pos[2]
         distance = math.sqrt(dx*dx + dy*dy + dz*dz)
         
-        if distance < 40:  # Hit player!
-            if bullet in enemy_bullets:  # Ensure bullet still exists
-                enemy_bullets.remove(bullet)
+        if distance < 30:  # Hit player!
+            enemy_bullets.remove(bullet)
             
-            # Only take damage if not in cooldown period
-            if damage_cooldown <= 0:
-                # Get enemy type to determine damage
-                enemy_type = bullet[6]  # Enemy type stored in bullet
-                damage = ENEMY_TYPES[enemy_type]["damage"]
+            # Determine damage based on bullet source
+            damage = DAMAGE_PER_HIT
+            
+            # Boss bullets do double damage
+            if len(bullet) > 6 and bullet[6] == "boss":  
+                damage = DAMAGE_PER_HIT * 2
+            
+            # Apply damage and show hit effect
+            player_health -= damage
+            hit_flash_duration = 10  # Set flash duration (frames)
+            
+            # Check if player lost a life
+            if player_health <= 0:
+                player_lives -= 1
                 
-                # Apply damage to player with explicit clamping to prevent negative health
-                player_health = max(0, player_health - damage)
-                damage_cooldown = 30  # Set damage cooldown (half a second at 60 FPS)
-                
-                # Check if player is destroyed
-                if player_health <= 0:
-                    player_health = 0  # Ensure health doesn't go negative for display purposes
+                if player_lives > 0:
+                    # Player still has lives left
+                    player_health = player_max_health  # Reset health for next life
+                else:
+                    # Player is out of lives - game over
                     game_over = True
     
-    # Update enemy behavior
-    update_enemies()
-    
-    # Check for level advancement
-    if not game_over:
-        check_level_advancement()
-
-def check_level_advancement():
-    """Check if player should advance to the next level"""
-    global current_level, score
-    
-    # Get current level configuration
-    level_data = LEVEL_CONFIG.get(current_level, LEVEL_CONFIG[1])
-    
-    # Check if score meets the threshold for next level
-    if score >= level_data["next_level_score"] and current_level < len(LEVEL_CONFIG):
-        # Advance to next level
-        current_level += 1
+    # Update enemies
+    for enemy in enemies:
+        # Calculate distance to player
+        dx = player_pos[0] - enemy[0]
+        dy = player_pos[1] - enemy[1]
+        dz = player_pos[2] - enemy[2]
+        distance_to_player = math.sqrt(dx*dx + dy*dy + dz*dz)
         
-        # Clear bullets
-        bullets.clear()
-        enemy_bullets.clear()
+        # Get this enemy's preferred distance
+        preferred_distance = enemy[6]
         
-        # Re-initialize enemies for the new level
-        initialize_enemies()
-        
-        # Add bonus health for level advancement (25% of max health, but don't exceed max)
-        global player_health, max_player_health
-        bonus_health = max_player_health * 0.25
-        player_health = min(player_health + bonus_health, max_player_health)
-
-def update_thruster_particles():
-    """Update thruster particle effects"""
-    global thruster_particles
-    
-    # Remove expired particles
-    thruster_particles = [p for p in thruster_particles if p[3] > 0]
-    
-    # Update existing particles
-    for particle in thruster_particles:
-        # Move particle
-        particle[0] += particle[4]
-        particle[1] += particle[5]
-        particle[2] += particle[6]
-        
-        # Decrease lifetime
-        particle[3] -= 1
-    
-    # Add new particles only when moving forward or idle with thruster glow
-    if thruster_glow_intensity > 0:
-        rad = player_rotation * math.pi / 180
-        
-        # Central thruster particle generation
-        # Calculate particle position relative to central engine
-        x = player_pos[0] - 65 * math.cos(rad) - 15 * math.cos(rad)
-        y = player_pos[1] - 65 * math.sin(rad) - 15 * math.sin(rad)
-        
-        # Add multiple particles per frame for the central thruster
-        for _ in range(int(4 * thruster_glow_intensity)):
-            # Random spread around central engine
-            offset_y = random.uniform(-10, 10)
-            offset_z = random.uniform(-10, 10)
-            
-            z = player_pos[2] + offset_z
-            y_adjusted = y + offset_y * 0.5  # Reduce horizontal spread
-            
-            # Random velocity components
-            vx = -math.cos(rad) * random.uniform(3, 6)  # Slightly slower particles
-            vy = -math.sin(rad) * random.uniform(3, 6) + offset_y * 0.2
-            vz = random.uniform(-0.8, 0.8) + offset_z * 0.1
-            
-            # Add particle with longer lifetime for the larger thruster
-            lifetime = int(random.uniform(20, 35) * thruster_glow_intensity)
-            thruster_particles.append([x, y_adjusted, z, lifetime, vx, vy, vz])
-        
-        # Side thrusters (smaller particles)
-        for y_offset in [-18, 18]:
-            side_x = player_pos[0] - 50 * math.cos(rad) - 8 * math.cos(rad)
-            side_y = player_pos[1] - 50 * math.sin(rad) - 8 * math.sin(rad)
-            side_y += y_offset * math.cos(rad * math.pi / 180)  # Adjust for ship rotation
-            side_x += y_offset * math.sin(rad * math.pi / 180)
-            
-            if random.random() < 0.3 * thruster_glow_intensity:
-                vx = -math.cos(rad) * random.uniform(1, 3)
-                vy = -math.sin(rad) * random.uniform(1, 3)
-                vz = random.uniform(-0.3, 0.3)
+        # Update target position occasionally to maintain fixed position in space
+        if random.random() < 0.02:  # Reduced update frequency to keep positions more stable
+            # Either stay at current position or choose a new random position
+            if random.random() < 0.7:  # 70% chance to just maintain current position
+                enemy[5] = [enemy[0], enemy[1], enemy[2]]
+            else:  # 30% chance to pick a new random position
+                # Calculate a random position at preferred distance from player
+                angle = random.uniform(0, 2 * math.pi)
+                distance = preferred_distance * random.uniform(0.9, 1.1)
                 
-                thruster_particles.append([side_x, side_y, player_pos[2], 15, vx, vy, vz])
+                target_x = player_pos[0] + math.cos(angle) * distance
+                target_y = player_pos[1] + math.sin(angle) * distance
+                target_z = random.uniform(player_pos[2] - 100, player_pos[2] + 100)
+                
+                # Clamp to battlefield bounds
+                target_x = max(min(target_x, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+                target_y = max(min(target_y, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+                target_z = max(min(target_z, 500), 50)
+                
+                enemy[5] = [target_x, target_y, target_z]
+        
+        # Move toward target position if not close enough and only if we have a target
+        if enemy[5][0] != 0 or enemy[5][1] != 0 or enemy[5][2] != 0:
+            target_x, target_y, target_z = enemy[5]
+            dx_target = target_x - enemy[0]
+            dy_target = target_y - enemy[1]
+            dz_target = target_z - enemy[2]
+            distance_to_target = math.sqrt(dx_target*dx_target + dy_target*dy_target + dz_target*dz_target)
+            
+            if distance_to_target > 10:  # Only move if not at target position
+                # Calculate direction to target
+                move_speed = 2
+                enemy[0] += dx_target / distance_to_target * move_speed
+                enemy[1] += dy_target / distance_to_target * move_speed
+                enemy[2] += dz_target / distance_to_target * move_speed
+        
+        # Keep enemies within battlefield bounds
+        enemy[0] = max(min(enemy[0], BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+        enemy[1] = max(min(enemy[1], BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+        enemy[2] = max(min(enemy[2], 500), 50)
+        
+        # Update enemy rotation to face player
+        enemy[3] = math.degrees(math.atan2(dy, dx)) % 360
+        
+        # If too close to player, move away rapidly
+        if distance_to_player < preferred_distance * 0.8:
+            # Calculate direction away from player
+            move_dir_x = enemy[0] - player_pos[0]
+            move_dir_y = enemy[1] - player_pos[1]
+            move_dir_len = math.sqrt(move_dir_x*move_dir_x + move_dir_y*move_dir_y)
+            
+            if move_dir_len > 0:  # Avoid division by zero
+                # Move away from player
+                move_speed = 5  # Faster escape speed
+                enemy[0] += move_dir_x / move_dir_len * move_speed
+                enemy[1] += move_dir_y / move_dir_len * move_speed
+        
+        # Random shooting behavior
+        # Decrement shooting cooldown
+        enemy[4] -= 1
+        
+        # Check if enemy can shoot - now based on random chance and distance
+        if enemy[4] <= 0 and distance_to_player < MAX_SHOOTING_DISTANCE:
+            # Determine shooting chance - much higher for boss
+            shoot_chance = ENEMY_SHOOT_CHANCE
+            if len(enemy) > 7 and enemy[7] == "boss":
+                shoot_chance = 0.05  # Moderate chance for boss to shoot (adjusted from 0.08)
+            
+            if random.random() < shoot_chance:
+                # Reset cooldown with some randomization
+                if len(enemy) > 7 and enemy[7] == "boss":
+                    # Boss has a longer cooldown - shoots at reasonable intervals
+                    enemy[4] = random.randint(45, 60)  # Slower shooting (0.75-1.0 seconds at 60 FPS)
+                else:
+                    enemy[4] = random.randint(int(ENEMY_SHOOT_COOLDOWN * 0.7), int(ENEMY_SHOOT_COOLDOWN * 1.3))
+                
+                # Calculate shooting angle to hit player
+                dx = player_pos[0] - enemy[0]
+                dy = player_pos[1] - enemy[1]
+                shoot_angle = math.degrees(math.atan2(dy, dx))
+                
+                # Add a small amount of inaccuracy based on distance - more accurate now
+                accuracy_factor = min(1.0, 600 / max(distance_to_player, 1))  # Normalize based on distance
+                angle_variance = random.uniform(-3, 3) * (1 - accuracy_factor)  # Significantly reduced variance
+                shoot_angle += angle_variance
+                
+                # Determine number of lasers to shoot based on enemy type
+                num_lasers = 1
+                if len(enemy) > 7:  # Check if enemy has a type specified
+                    if enemy[7] == "golden":
+                        num_lasers = 2  # Golden enemies shoot 2 lasers
+                    elif enemy[7] == "black-red":
+                        num_lasers = 3  # Black-red enemies shoot 3 lasers
+                    elif enemy[7] == "boss":
+                        num_lasers = 5  # Boss shoots 5 lasers (reduced from 10)
+                
+                # Create enemy lasers
+                for i in range(num_lasers):
+                    # Add slight angle variation for multiple lasers
+                    laser_angle = shoot_angle
+                    if num_lasers > 1:
+                        # Only spread for non-boss enemies
+                        if enemy[7] == "golden":
+                            # Spread the lasers by 5 degrees
+                            spread = 5
+                            laser_angle += spread * (i - (num_lasers - 1) / 2)
+                        elif enemy[7] == "black-red":
+                            # Spread the lasers by 8 degrees
+                            spread = 8
+                            laser_angle += spread * (i - (num_lasers - 1) / 2)
+                        # Boss shoots all lasers directly at player with minimal spread
+                        elif enemy[7] == "boss":
+                            # Just add a tiny variation for visual effect
+                            laser_angle += random.uniform(-1.5, 1.5)
+                    
+                    # Calculate laser origin point
+                    if len(enemy) > 7 and enemy[7] == "boss":
+                        # Calculate front position of boss
+                        size_scale = 6.0
+                        front_offset = 35 * size_scale
+                        
+                        # Calculate positions in a grid pattern at the boss front
+                        grid_size = 3  # 3x3 grid + 1 center = 10 lasers
+                        row = i % grid_size
+                        col = i // grid_size
+                        
+                        # Generate coordinates in a grid at the front of the boss
+                        y_offset = (row - 1) * 15 * size_scale * 0.5
+                        z_offset = (col - 1.5) * 10 * size_scale * 0.5
+                        
+                        # Adjust position to boss front
+                        laser_x = enemy[0] + front_offset * math.cos(math.radians(laser_angle))
+                        laser_y = enemy[1] + front_offset * math.sin(math.radians(laser_angle)) + y_offset
+                        laser_z = enemy[2] + z_offset
+                    else:
+                        # Regular enemies - shoot from center with default offset
+                        laser_x = enemy[0] + 30 * math.cos(math.radians(laser_angle))
+                        laser_y = enemy[1] + 30 * math.sin(math.radians(laser_angle))
+                        laser_z = enemy[2]
+                    
+                    # Create the laser beam
+                    enemy_laser = [
+                        laser_x,
+                        laser_y,
+                        laser_z,
+                        laser_angle,
+                        20 + random.uniform(-2, 2),  # Faster, more consistent speed
+                        150  # Lifetime
+                    ]
+                    
+                    # Tag boss lasers so they can do more damage
+                    if len(enemy) > 7 and enemy[7] == "boss":
+                        enemy_laser.append("boss")
+                    
+                    # Add to enemy bullets list
+                    enemy_bullets.append(enemy_laser)
+    
+    # Check for level up with special events or victory
+    if player_experience >= 100:
+        # Check for victory condition - already at level 4 and reached 100 XP
+        if player_level == 4 and player_experience >= 100:
+            game_won = True
+            return  # Stop updating the game
+        
+        player_level += 1
+        player_experience -= 100  # Reset experience for next level
+        
+        # Clear all existing enemies regardless of level
+        enemies.clear()
+        enemy_bullets.clear()  # Also clear enemy bullets when level changes
+        
+        # Special event for level 4 (final boss level)
+        if player_level == 4:
+            # Clear enemies again to be absolutely sure
+            enemies.clear()
+            
+            # Spawn 1 boss spaceship
+            spawn_enemy("boss")
+            
+            # Spawn 3 black-red enemies as the boss's guards
+            for i in range(3):
+                spawn_enemy("black-red")
+                
+            # Return early to prevent other enemy spawns
+            return
+        
+        # Special event for level 3
+        elif player_level == 3:
+            # Spawn 9 black-red enemies
+            for i in range(9):
+                spawn_enemy("black-red")
+                
+            # Spawn 5 golden enemies
+            for i in range(5):
+                spawn_enemy("golden")
+        
+        # Original special event for other level-ups
+        else:
+            # Spawn 8 golden enemies
+            for i in range(8):
+                spawn_enemy("golden")
+                
+            # Spawn 5 red enemies
+            for i in range(5):
+                spawn_enemy("red")
+
 
 def reset_game():
     """Reset game state for a new game"""
-    global player_pos, player_rotation, player_speed, player_boost_speed 
-    global enemies, bullets, enemy_bullets, score, game_over
-    global moving_forward, moving_backward, thruster_glow_intensity, thruster_particles
-    global player_health, max_player_health, damage_cooldown, current_level
+    global player_pos, player_rotation, player_speed, player_boost_speed, enemies, player_bullets, enemy_bullets, score, game_over
+    global moving_forward, moving_backward, thruster_glow_intensity
+    global player_health, player_lives, hit_flash_duration
+    global player_experience, player_level, game_won, enemies_respawn_timer
     
     player_pos = [0, 0, 50]
     player_rotation = 90  # Start at 90 degrees
     player_speed = 10  # Reset to increased speed
     player_boost_speed = 15  # Reset boost speed
-    player_health = max_player_health  # Reset to full health
-    damage_cooldown = 0
-    current_level = 1  # Start at level 1
     enemies = []
-    bullets = []
+    player_bullets = []
     enemy_bullets = []
     score = 0
     game_over = False
     moving_forward = False
     moving_backward = False
     thruster_glow_intensity = 0.0
-    thruster_particles = []
     
-    # Initialize enemies based on level 1 configuration
-    initialize_enemies()
+    # Reset health and lives
+    player_health = player_max_health
+    player_lives = 10  # Increased from 3 to 10
+    hit_flash_duration = 0
+    
+    # Reset experience and level
+    player_experience = 0
+    player_level = 1
+    
+    # Reset victory status
+    game_won = False
+    enemies_respawn_timer = 0
+    
+    # Initialize enemies at random positions far from player
+    for i in range(10):
+        preferred_distance = random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)
+        angle = random.uniform(0, 2 * math.pi)
+        
+        # Position based on preferred distance
+        pos_x = player_pos[0] + math.cos(angle) * preferred_distance
+        pos_y = player_pos[1] + math.sin(angle) * preferred_distance
+        
+        # Ensure within battlefield bounds
+        pos_x = max(min(pos_x, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+        pos_y = max(min(pos_y, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+        
+        enemies.append([
+            pos_x,  # x
+            pos_y,  # y
+            random.uniform(100, 500),  # z (height)
+            random.uniform(0, 360),    # rotation
+            random.randint(0, ENEMY_SHOOT_COOLDOWN),  # shooting cooldown
+            [0, 0, 0],  # target position (will be set during gameplay)
+            random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)  # preferred distance from player
+        ])
+    
+    # Reset game state
+    game_over = False
+    game_won = False
 
 def setupCamera():
     """
@@ -1748,7 +2105,7 @@ def setupCamera():
     """
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(fovY, 1.25, 0.1, 3000)
+    gluPerspective(fovY, 1.25, 0.1, 5000)  # Extended view distance from 3000 to 5000
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
     
@@ -1777,231 +2134,9 @@ def idle():
     """
     Idle function for continuous updates
     """
-    if not game_over:
+    if not game_over and not game_won:
         update_game()
     glutPostRedisplay()
-
-def draw_game_over_screen():
-    """Draw a detailed game over screen with instructions"""
-    # Set up orthographic projection for 2D overlay
-    glMatrixMode(GL_PROJECTION)
-    glPushMatrix()
-    glLoadIdentity()
-    gluOrtho2D(0, 1000, 0, 800)
-    
-    glMatrixMode(GL_MODELVIEW)
-    glPushMatrix()
-    glLoadIdentity()
-    
-    # Semi-transparent background
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    glColor4f(0.0, 0.0, 0.0, 0.7)  # Black with 70% opacity
-    glBegin(GL_QUADS)
-    glVertex2f(250, 250)
-    glVertex2f(750, 250)
-    glVertex2f(750, 550)
-    glVertex2f(250, 550)
-    glEnd()
-    glDisable(GL_BLEND)
-    
-    # Border for game over box
-    glColor3f(1.0, 0.0, 0.0)  # Red border
-    glLineWidth(3.0)
-    glBegin(GL_LINE_LOOP)
-    glVertex2f(250, 250)
-    glVertex2f(750, 250)
-    glVertex2f(750, 550)
-    glVertex2f(250, 550)
-    glEnd()
-    glLineWidth(1.0)
-    
-    # Game over title
-    glColor3f(1.0, 0.0, 0.0)  # Red color for "GAME OVER"
-    draw_text(400, 500, "GAME OVER", GLUT_BITMAP_HELVETICA_18)
-    
-    # Final score
-    glColor3f(1.0, 1.0, 0.0)  # Yellow for score
-    draw_text(350, 450, f"FINAL SCORE: {score}", GLUT_BITMAP_HELVETICA_18)
-    draw_text(350, 420, f"LEVEL REACHED: {current_level}", GLUT_BITMAP_HELVETICA_18)
-    
-    # Instructions
-    glColor3f(0.0, 1.0, 1.0)  # Cyan for instructions
-    draw_text(350, 370, "Press 'R' to restart game", GLUT_BITMAP_HELVETICA_18)
-    draw_text(350, 340, "Press 'ESC' to exit", GLUT_BITMAP_HELVETICA_18)
-    
-    # Game tips
-    glColor3f(0.0, 1.0, 0.5)  # Green-cyan for tips
-    draw_text(340, 300, "TIP: Use WASD to move, SPACE to fire lasers", GLUT_BITMAP_HELVETICA_12)
-    draw_text(340, 280, "TIP: Press C to toggle camera views", GLUT_BITMAP_HELVETICA_12)
-    
-    # Reset matrix state
-    glPopMatrix()
-    glMatrixMode(GL_PROJECTION)
-    glPopMatrix()
-    glMatrixMode(GL_MODELVIEW)
-
-
-def draw_first_person_hud():
-    """Draw first-person HUD elements with position and orientation data"""
-    # Only show if in first-person/cockpit view
-    if camera_mode != 1:
-        return
-    
-    # Set up orthographic projection for 2D overlay
-    glMatrixMode(GL_PROJECTION)
-    glPushMatrix()
-    glLoadIdentity()
-    gluOrtho2D(0, 1000, 0, 800)
-    
-    glMatrixMode(GL_MODELVIEW)
-    glPushMatrix()
-    glLoadIdentity()
-    
-    # Draw a cockpit-style HUD frame
-    glEnable(GL_BLEND)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    
-    # Draw targeting reticle in center of screen
-    glColor4f(0.0, 1.0, 1.0, 0.7)  # Cyan with 70% opacity
-    
-    # Outer circle
-    glBegin(GL_LINE_LOOP)
-    for i in range(360):
-        theta = i * math.pi / 180
-        glVertex2f(500 + 30 * math.cos(theta), 400 + 30 * math.sin(theta))
-    glEnd()
-    
-    # Inner circle
-    glBegin(GL_LINE_LOOP)
-    for i in range(360):
-        theta = i * math.pi / 180
-        glVertex2f(500 + 5 * math.cos(theta), 400 + 5 * math.sin(theta))
-    glEnd()
-    
-    # Crosshairs
-    glBegin(GL_LINES)
-    glVertex2f(470, 400)
-    glVertex2f(490, 400)
-    glVertex2f(510, 400)
-    glVertex2f(530, 400)
-    glVertex2f(500, 370)
-    glVertex2f(500, 390)
-    glVertex2f(500, 410)
-    glVertex2f(500, 430)
-    glEnd()
-    
-    # Position and orientation data in a fancy digital display box
-    # Draw display background box
-    glColor4f(0.0, 0.1, 0.2, 0.7)  # Dark blue, semi-transparent
-    glBegin(GL_QUADS)
-    glVertex2f(720, 50)
-    glVertex2f(980, 50)
-    glVertex2f(980, 150)
-    glVertex2f(720, 150)
-    glEnd()
-    
-    # Draw border for the display
-    glColor4f(0.0, 0.8, 1.0, 0.8)  # Bright cyan for border
-    glLineWidth(2.0)
-    glBegin(GL_LINE_LOOP)
-    glVertex2f(720, 50)
-    glVertex2f(980, 50)
-    glVertex2f(980, 150)
-    glVertex2f(720, 150)
-    glEnd()
-    glLineWidth(1.0)
-    
-    # Add a title for the navigation display
-    glColor3f(0.0, 1.0, 1.0)
-    draw_text(750, 130, "NAVIGATION DATA", GLUT_BITMAP_9_BY_15)
-    
-    # Add separator line under title
-    glBegin(GL_LINES)
-    glVertex2f(730, 125)
-    glVertex2f(970, 125)
-    glEnd()
-    
-    # Display position coordinates with labels
-    glColor3f(0.5, 1.0, 1.0)  # Lighter cyan for labels
-    draw_text(730, 110, "POS-X:", GLUT_BITMAP_8_BY_13)
-    draw_text(730, 95, "POS-Y:", GLUT_BITMAP_8_BY_13)
-    draw_text(730, 80, "POS-Z:", GLUT_BITMAP_8_BY_13)
-    draw_text(730, 65, "HDG:", GLUT_BITMAP_8_BY_13)
-    
-    # Display actual values in a different color
-    glColor3f(1.0, 1.0, 0.0)  # Yellow for values
-    draw_text(790, 110, f"{int(player_pos[0])}", GLUT_BITMAP_8_BY_13)
-    draw_text(790, 95, f"{int(player_pos[1])}", GLUT_BITMAP_8_BY_13)
-    draw_text(790, 80, f"{int(player_pos[2])}", GLUT_BITMAP_8_BY_13)
-    draw_text(790, 65, f"{int(player_rotation)}\u00B0", GLUT_BITMAP_8_BY_13)  # Degree symbol
-    
-    # Add a mini-compass on the right side of the display
-    compass_center_x = 930
-    compass_center_y = 90
-    compass_radius = 30
-    
-    # Compass circle
-    glColor4f(0.0, 0.6, 0.8, 0.6)  # Light blue for compass
-    glBegin(GL_LINE_LOOP)
-    for i in range(360):
-        theta = i * math.pi / 180
-        glVertex2f(compass_center_x + compass_radius * math.cos(theta),
-                 compass_center_y + compass_radius * math.sin(theta))
-    glEnd()
-    
-    # Compass cardinal directions
-    directions = [
-        ("N", 90), ("E", 0), ("S", 270), ("W", 180),
-        ("NE", 45), ("SE", 315), ("SW", 225), ("NW", 135)
-    ]
-    
-    # Draw cardinal markers
-    for label, angle in directions:
-        # Calculate position on compass
-        rad = angle * math.pi / 180
-        x = compass_center_x + (compass_radius - 10) * math.cos(rad)
-        y = compass_center_y + (compass_radius - 10) * math.sin(rad)
-        
-        # Only draw the main cardinal directions (N, E, S, W) as text
-        if len(label) == 1:
-            glColor3f(1.0, 1.0, 0.0)  # Yellow for main directions
-            draw_text(x - 4, y - 4, label, GLUT_BITMAP_8_BY_13)
-        else:
-            # Draw small dots for intermediate directions
-            glColor3f(0.7, 0.7, 0.7)  # Grey for minor directions
-            glPointSize(3.0)
-            glBegin(GL_POINTS)
-            glVertex2f(x, y)
-            glEnd()
-            glPointSize(1.0)
-    
-    # Current heading indicator
-    player_rad = (90 - player_rotation) * math.pi / 180  # Adjust for compass orientation
-    glColor3f(1.0, 0.0, 0.0)  # Red for current heading
-    glLineWidth(2.0)
-    glBegin(GL_LINES)
-    glVertex2f(compass_center_x, compass_center_y)
-    glVertex2f(compass_center_x + compass_radius * math.cos(player_rad),
-             compass_center_y + compass_radius * math.sin(player_rad))
-    glEnd()
-    glLineWidth(1.0)
-    
-    # Add speed indicator
-    glColor3f(0.0, 1.0, 0.0)  # Green for speed
-    speed_text = f"SPEED: {int(player_speed * 200)} KPH"
-    if moving_forward:
-        speed_text = f"BOOST: {int(player_boost_speed * 200)} KPH"
-    draw_text(850, 65, speed_text, GLUT_BITMAP_8_BY_13)
-    
-    glDisable(GL_BLEND)
-    
-    # Reset matrix state
-    glPopMatrix()
-    glMatrixMode(GL_PROJECTION)
-    glPopMatrix()
-    glMatrixMode(GL_MODELVIEW)
-
 
 def showScreen():
     """
@@ -2018,19 +2153,90 @@ def showScreen():
     draw_player()
     draw_enemies()
     draw_bullets()
-    draw_enemy_bullets()  # Ensure enemy bullets are drawn
+    
+    # Draw damage flash overlay when hit (red screen effect)
+    if hit_flash_duration > 0:
+        # Set up orthographic projection for 2D overlay
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, 1000, 0, 800)
+        
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+        
+        # Draw red overlay with alpha based on hit_flash_duration
+        alpha = hit_flash_duration / 10.0 * 0.5  # Maximum 50% opacity
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glColor3f(1.0, 0.0, 0.0)
+        
+        glBegin(GL_QUADS)
+        glVertex2f(0, 0)
+        glVertex2f(1000, 0)
+        glVertex2f(1000, 800)
+        glVertex2f(0, 800)
+        glEnd()
+        
+        glDisable(GL_BLEND)
+        
+        # Restore matrix state
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
     
     # Draw HUD elements (always on top)
     draw_radar()
     draw_hud()
-    draw_health_bar()  # Draw improved health bar
     
-    # Draw first-person specific HUD elements when in cockpit view
-    draw_first_person_hud()
-    
-    # Show improved game over screen if needed
+    # Show game over message if needed
     if game_over:
-        draw_game_over_screen()
+        # Set up orthographic projection for 2D overlay
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, 1000, 0, 800)
+        
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+        
+        # Semi-transparent dark overlay
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glColor3f(0.0, 0.0, 0.0)
+        
+        glBegin(GL_QUADS)
+        glVertex2f(0, 0)
+        glVertex2f(1000, 0)
+        glVertex2f(1000, 800)
+        glVertex2f(0, 800)
+        glEnd()
+        
+        glDisable(GL_BLEND)
+        
+        # Game over text
+        glColor3f(1.0, 0.0, 0.0)
+        glRasterPos2f(400, 450)
+        for ch in "GAME OVER":
+            glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, ord(ch))
+        
+        glColor3f(1.0, 1.0, 1.0)
+        glRasterPos2f(350, 400)
+        for ch in "Press 'R' to restart":
+            glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
+        
+        glRasterPos2f(350, 350)
+        for ch in f"Final Score: {score}":
+            glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
+        
+        # Restore matrix state
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
     
     glutSwapBuffers()
 
@@ -2046,54 +2252,95 @@ def draw_battlefield_boundaries():
     dist_to_boundary_x = BATTLEFIELD_SIZE - abs(player_pos[0])
     dist_to_boundary_y = BATTLEFIELD_SIZE - abs(player_pos[1])
     
-    # Only show boundaries when player is close to them (within 100 units)
-    boundary_visibility = 100
+    # Only show boundaries when player is close to them (within 200 units)
+    boundary_visibility = 200
     
     # North boundary (positive Y)
     if BATTLEFIELD_SIZE - player_pos[1] < boundary_visibility:
         # Calculate alpha based on proximity to boundary
         alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE - player_pos[1]) / boundary_visibility)
-        glColor4f(0.4, 0.8, 1.0, alpha)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
         glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
         glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
-        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 500)
-        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 500)
+        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
     
     # South boundary (negative Y)
     if BATTLEFIELD_SIZE + player_pos[1] < boundary_visibility:
         # Calculate alpha based on proximity to boundary
         alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE + player_pos[1]) / boundary_visibility)
-        glColor4f(0.4, 0.8, 1.0, alpha)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
         glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
         glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
-        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 500)
-        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 500)
+        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
     
     # East boundary (positive X)
     if BATTLEFIELD_SIZE - player_pos[0] < boundary_visibility:
         # Calculate alpha based on proximity to boundary
         alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE - player_pos[0]) / boundary_visibility)
-        glColor4f(0.4, 0.8, 1.0, alpha)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
         glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
         glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
-        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 500)
-        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 500)
+        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
     
     # West boundary (negative X)
     if BATTLEFIELD_SIZE + player_pos[0] < boundary_visibility:
         # Calculate alpha based on proximity to boundary
         alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE + player_pos[0]) / boundary_visibility)
-        glColor4f(0.4, 0.8, 1.0, alpha)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
         glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
         glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
-        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 500)
-        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 500)
+        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
         
     glEnd()
     
     glDisable(GL_BLEND)
 
-# Add this code to call initialize_enemies() before entering the main loop
+def spawn_enemy(enemy_type="red"):
+    """Spawn a new enemy of specific type"""
+    preferred_distance = random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)
+    
+    # For boss, use fixed position directly ahead of player
+    if enemy_type == "boss":
+        angle = player_rotation * math.pi / 180
+        preferred_distance = MAX_ENEMY_DISTANCE * 0.8  # Place boss at 80% of max distance
+    else:
+        angle = random.uniform(0, 2 * math.pi)
+    
+    # Position based on preferred distance
+    pos_x = player_pos[0] + math.cos(angle) * preferred_distance
+    pos_y = player_pos[1] + math.sin(angle) * preferred_distance
+    
+    # Ensure within battlefield bounds
+    pos_x = max(min(pos_x, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+    pos_y = max(min(pos_y, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
+    
+    # Create base enemy with standard attributes
+    new_enemy = [
+        pos_x,  # x
+        pos_y,  # y
+        random.uniform(100, 500),  # z (height)
+        random.uniform(0, 360),    # rotation
+        random.randint(0, ENEMY_SHOOT_COOLDOWN),  # shooting cooldown
+        [0, 0, 0],  # target position (will be set during gameplay)
+        random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)  # preferred distance from player
+    ]
+    
+    # Add enemy type
+    if enemy_type in ["golden", "black-red", "boss"]:
+        new_enemy.append(enemy_type)
+    
+    # For boss, give it a longer shooting cooldown, but make it more aggressive
+    if enemy_type == "boss":
+        new_enemy[4] = 60  # Boss starts shooting after longer delay (adjusted from 30)
+        # Use a fixed height for the boss
+        new_enemy[2] = 200
+    
+    enemies.append(new_enemy)
+
 def main():
     glutInit()
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
@@ -2103,9 +2350,6 @@ def main():
     
     # Enable depth testing for 3D rendering
     glEnable(GL_DEPTH_TEST)
-    
-    # Initialize enemies before starting the game loop
-    initialize_enemies()  # Add this line
     
     # Register callback functions
     glutDisplayFunc(showScreen)
