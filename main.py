@@ -14,6 +14,7 @@ player_boost_speed = 15  # Faster speed for quick maneuvers
 enemies = []  # List to store enemy positions
 enemy_bullets = []  # List to store enemy laser beam positions
 player_bullets = []  # List to store player laser beam positions
+player_missiles = []  # List to store player missile positions and states
 score = 0  # Player score
 game_over = False  # Game over flag
 HUD_color = (0, 1, 1)  # Cyan color for HUD elements
@@ -62,6 +63,23 @@ auto_target = None  # Current enemy being targeted
 auto_move_timer = 0  # Timer for changing targets
 AUTO_TARGET_CHANGE = 90  # Change targets every 1.5 seconds
 
+# Add a new global variable to track missile usage per level
+missile_used_this_level = False  # Flag to track if the player has used their missile in the current level
+
+# Add combo system variables
+combo_count = 0  # Current combo (enemies destroyed in succession)
+combo_timer = 0  # Time remaining to extend combo
+combo_multiplier = 1  # Score multiplier based on combo
+MAX_COMBO_TIME = 180  # 3 seconds at 60 FPS to maintain combo
+
+# Add shield system variables
+shield_active = False  # Flag to track if shield is currently active
+shield_timer = 0  # Timer for shield duration in frames
+SHIELD_MAX_DURATION = 1200  # 20 seconds at 60 FPS
+shield_color = (0.0, 0.6, 1.0)  # Blue color for shield
+shield_alpha = 0.4  # Shield transparency
+shield_used_in_game = False  # Flag to track if shield has been used in the entire game
+
 # Initialize some enemies
 for i in range(10):
     # Create enemies at random positions far from player
@@ -87,7 +105,7 @@ for i in range(10):
     ])
 
 def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
-    glColor3f(*HUD_color)  # Use HUD color
+    # Removed: glColor3f(*HUD_color) - Don't override current color
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
@@ -1109,22 +1127,19 @@ def draw_boss_spaceship():
 def draw_laser_beam(is_enemy=False):
     if is_enemy:
         if cheat_mode_enabled:
-            glColor3f(0.0, 0.3, 1.0)  # Blue color for enemy lasers in cheat mode
+            glColor3f(0.0, 0.3, 1.0)
         else:
-            glColor3f(1, 0.3, 0)  # Normal: bright red-orange
+            glColor3f(1, 0.3, 0)
     else:
         if cheat_mode_enabled:
-            glColor3f(0.8, 0.3, 0.0)  # Dark orange for player in cheat
+            glColor3f(0.8, 0.3, 0.0)
         else:
-            glColor3f(0, 0.8, 1)  # Cyan-blue for normal player shot
+            glColor3f(0, 0.8, 1)
 
-    # Draw laser beam shape
     glPushMatrix()
     glScalef(30, 0.5, 0.5)
     glutSolidCube(5)
     glPopMatrix()
-
-
 
 def draw_explosion(size):
     """Draw an explosion"""
@@ -1197,6 +1212,7 @@ def draw_radar():
     # Draw cardinal direction labels (N, S, E, W) around the radar
     # These should rotate with the player's rotation
     directions = ['N', 'E', 'S', 'W']
+    glColor3f(0, 0.7, 0.7)  # Cyan color for direction labels
     for i, label in enumerate(directions):
         # 0 = N, 1 = E, 2 = S, 3 = W
         base_angle = i * 90  # 0, 90, 180, 270
@@ -1215,53 +1231,94 @@ def draw_radar():
 
 def draw_hud():
     """Draw the heads-up display (HUD)"""
-    global game_won
+    global game_won, missile_used_this_level, combo_count, combo_timer, combo_multiplier
+    global shield_active, shield_timer
+    
+    # Set default HUD color for most text
+    glColor3f(*HUD_color)
     
     # Player health and lives display (top left)
     health_percentage = player_health / player_max_health * 100
     draw_text(10, 770, f"HEALTH: {int(health_percentage)}%")
     draw_text(10, 740, f"LIVES: {player_lives}")
     
-    # Speed indicator
-    draw_text(10, 710, f"SPEED: {int(player_speed * 200)} KPH")
+    # Score - moved to right side and changed to green
+    glColor3f(0.0, 1.0, 0.0)  # Green color for score
+    draw_text(800, 750, f"SCORE: {score}")
     
-    # Score
-    draw_text(10, 680, f"SCORE: {score}")
+    # Reset to default HUD color
+    glColor3f(*HUD_color)
     
-    # Display camera mode
-    camera_mode_text = "FIRST-PERSON" if camera_mode == 1 else "THIRD-PERSON"
-    draw_text(750, 750, f"Cheat Mode: (Press 'C')")
+    if cheat_mode_enabled:
+        draw_text(750, 720, f"Cheat Mode: ACTIVATED")
+    else:
+        draw_text(750, 720, f"Cheat Mode: DIACTIVATED")
     
     # Distance indicator
+    closest_dist = float('inf')
     if enemies:
-        # Find closest enemy
-        closest_dist = float('inf')
         for enemy in enemies:
-            dx = enemy[0] - player_pos[0]
-            dy = enemy[1] - player_pos[1]
-            dz = enemy[2] - player_pos[2]
-            dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+            dx = player_pos[0] - enemy[0]
+            dy = player_pos[1] - enemy[1]
+            dist = math.sqrt(dx*dx + dy*dy)
             if dist < closest_dist:
                 closest_dist = dist
-        draw_text(800, 720, f"TARGET: {int(closest_dist)} M")
+        draw_text(800, 690, f"TARGET: {int(closest_dist)} M")
     
     # Player experience and level display
-    draw_text(800, 780, f"EXP: {player_experience}")  # Top right
+    # Draw experience bar
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, 1000, 0, 800)
     
-    # Make level display more prominent, especially for level 4
-    if player_level == 4:
-        # Draw a more noticeable level indicator for the final level
-        draw_text(450, 780, "FINAL LEVEL", GLUT_BITMAP_TIMES_ROMAN_24)
-    else:
-        draw_text(500, 780, f"LEVEL: {player_level}")  # Top center
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    
+    # Draw experience bar background
+    glColor3f(0.2, 0.2, 0.2)
+    glBegin(GL_QUADS)
+    glVertex2f(10, 710)
+    glVertex2f(200, 710)
+    glVertex2f(200, 725)
+    glVertex2f(10, 725)
+    glEnd()
+    
+    # Draw experience bar fill
+    glColor3f(0.5, 0.0, 0.5)  # Purple for experience
+    xp_width = (player_experience / 100) * 190
+    glBegin(GL_QUADS)
+    glVertex2f(10, 710)
+    glVertex2f(10 + xp_width, 710)
+    glVertex2f(10 + xp_width, 725)
+    glVertex2f(10, 725)
+    glEnd()
+    
+    # Restore matrix state
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+    
+    # Experience and level text
+    glColor3f(*HUD_color)
+    draw_text(10, 680, f"LEVEL: {player_level}")
     
     # If the player has won, display the victory message
     if game_won:
-        # Static victory indicator for defeating the boss
+        # Set golden color for victory message
+        glColor3f(1.0, 0.84, 0.0)  # Golden yellow color
         draw_text(400, 500, "BOSS DEFEATED - YOU WON!", GLUT_BITMAP_HELVETICA_18)
+        
+        # Reset to default HUD color for other text
+        glColor3f(*HUD_color)
         draw_text(380, 300, f"Current Score: {score}", GLUT_BITMAP_HELVETICA_18)
         draw_text(390, 350, "Press 'R' to restart", GLUT_BITMAP_HELVETICA_18)
-
+    
+    # If the game is over, display the game over message
+    if game_over:
+        # Dark overlay for game over screen
         glMatrixMode(GL_PROJECTION)
         glPushMatrix()
         glLoadIdentity()
@@ -1271,70 +1328,184 @@ def draw_hud():
         glPushMatrix()
         glLoadIdentity()
         
-        # Semi-transparent dark overlay
+        # Semi-transparent black overlay
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        glColor3f(0.0, 0.0, 0.0)
-        
+        glColor4f(0.0, 0.0, 0.0, 0.7)
         glBegin(GL_QUADS)
         glVertex2f(0, 0)
         glVertex2f(1000, 0)
         glVertex2f(1000, 800)
         glVertex2f(0, 800)
         glEnd()
+        glDisable(GL_BLEND)
+        
         # Restore matrix state
         glPopMatrix()
         glMatrixMode(GL_PROJECTION)
         glPopMatrix()
         glMatrixMode(GL_MODELVIEW)
         
+        # Game over text in red
+        glColor3f(1.0, 0.0, 0.0)  # Red
+        draw_text(400, 500, "GAME OVER", GLUT_BITMAP_HELVETICA_18)
+        glColor3f(1.0, 1.0, 1.0)  # White
+        draw_text(380, 300, f"Final Score: {score}", GLUT_BITMAP_HELVETICA_18)
+        draw_text(390, 350, "Press 'R' to restart", GLUT_BITMAP_HELVETICA_18)
+    
+    # Add missile status display (place after other HUD elements)
+    if missile_used_this_level:
+        glColor3f(1.0, 0.0, 0.0)  # Red color for used missile
+        draw_text(10, 650, "MISSILE: USED")
+    else:
+        glColor3f(0.0, 1.0, 0.0)  # Green color for ready missile
+        draw_text(10, 650, "MISSILE: READY")
+    
+    # Add shield status display
+    if shield_active:
+        # Calculate remaining shield time in seconds
+        shield_seconds = int(shield_timer / 60)
+        
+        # Change color based on remaining time
+        if shield_seconds < 5:
+            glColor3f(1.0, 0.0, 0.0)  # Red when almost out of time
+        elif shield_seconds < 10:
+            glColor3f(1.0, 1.0, 0.0)  # Yellow when half time remaining
+        else:
+            glColor3f(0.0, 1.0, 1.0)  # Cyan for good shield time
+            
+        draw_text(10, 620, f"SHIELD: ACTIVE ({shield_seconds}s)")
+        
+        # Draw shield timer bar
+        timer_width = (shield_timer / SHIELD_MAX_DURATION) * 100
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, 1000, 0, 800)
+        
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+        
+        # Draw shield timer background
+        glColor3f(0.2, 0.2, 0.2)
+        glBegin(GL_QUADS)
+        glVertex2f(10, 610)
+        glVertex2f(110, 610)
+        glVertex2f(110, 615)
+        glVertex2f(10, 615)
+        glEnd()
+        
+        # Draw shield timer fill
+        if shield_seconds < 5:
+            glColor3f(1.0, 0.0, 0.0)  # Red
+        elif shield_seconds < 10:
+            glColor3f(1.0, 1.0, 0.0)  # Yellow
+        else:
+            glColor3f(0.0, 1.0, 1.0)  # Cyan
+            
+        glBegin(GL_QUADS)
+        glVertex2f(10, 610)
+        glVertex2f(10 + timer_width, 610)
+        glVertex2f(10 + timer_width, 615)
+        glVertex2f(10, 615)
+        glEnd()
+        
+        # Restore matrix state
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
+    elif shield_used_in_game:
+        glColor3f(1.0, 0.0, 0.0)  # Red color for used shield
+        draw_text(10, 620, "SHIELD: USED")
+    else:
+        glColor3f(0.0, 1.0, 1.0)  # Cyan color for shield indicator
+        draw_text(10, 620, "SHIELD: READY (Press 'P')")
+    
+    # Add combo display
+    if combo_count > 0:
+        # Determine color based on multiplier
+        if combo_multiplier == 3:
+            combo_color = (1.0, 0.0, 1.0)  # Purple for 3x multiplier
+        elif combo_multiplier == 2:
+            combo_color = (1.0, 0.5, 0.0)  # Orange for 2x multiplier
+        else:
+            combo_color = (1.0, 1.0, 0.0)  # Yellow for 1x multiplier
+        
+        # Draw combo count with appropriate color - update text to clarify score only
+        glColor3f(*combo_color)
+        draw_text(10, 590, f"COMBO: {combo_count}x ({combo_multiplier}x SCORE)")
+        
+        # Draw combo timer bar
+        timer_width = (combo_timer / MAX_COMBO_TIME) * 100
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        gluOrtho2D(0, 1000, 0, 800)
+        
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+        
+        # Draw combo timer background
+        glColor3f(0.2, 0.2, 0.2)
+        glBegin(GL_QUADS)
+        glVertex2f(10, 580)
+        glVertex2f(110, 580)
+        glVertex2f(110, 585)
+        glVertex2f(10, 585)
+        glEnd()
+        
+        # Draw combo timer fill
+        glColor3f(*combo_color)
+        glBegin(GL_QUADS)
+        glVertex2f(10, 580)
+        glVertex2f(10 + timer_width, 580)
+        glVertex2f(10 + timer_width, 585)
+        glVertex2f(10, 585)
+        glEnd()
+        
+        # Restore matrix state
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
 
 def draw_battlefield():
-    """Draw the space battlefield with animated floor grid"""
-    # Draw a starfield background
     glPointSize(2)
     glBegin(GL_POINTS)
-    glColor3f(1, 1, 1)  # White stars
-    for i in range(1000):  # Doubled the number of stars
-        x = random.uniform(-BATTLEFIELD_SIZE*3, BATTLEFIELD_SIZE*3)  # Extended star field
-        y = random.uniform(-BATTLEFIELD_SIZE*3, BATTLEFIELD_SIZE*3)  # Extended star field
-        z = random.uniform(-BATTLEFIELD_SIZE*2, 0)  # Stars below the battlefield
+    glColor3f(1, 1, 1)
+    for i in range(1000):
+        x = random.uniform(-BATTLEFIELD_SIZE*3, BATTLEFIELD_SIZE*3)
+        y = random.uniform(-BATTLEFIELD_SIZE*3, BATTLEFIELD_SIZE*3)
+        z = random.uniform(-BATTLEFIELD_SIZE*2, 0)
         glVertex3f(x, y, z)
     glEnd()
     
-    # Draw the animated grid floor
     draw_animated_floor()
-    
-    # Draw invisible boundary indicators
     draw_battlefield_boundaries()
 
 def draw_animated_floor():
-    """Draw an animated grid floor that gives a sense of movement"""
     global grid_offset_x, grid_offset_y
     
-    # Calculate grid offsets based on player orientation and speed
     rad = player_rotation * math.pi / 180
     movement_x = math.cos(rad) * grid_animation_speed
     movement_y = math.sin(rad) * grid_animation_speed
     
-    # Update grid offsets
     grid_offset_x = (grid_offset_x + movement_x) % grid_line_spacing
     grid_offset_y = (grid_offset_y + movement_y) % grid_line_spacing
     
     glBegin(GL_LINES)
-    glColor3f(0.2, 0.4, 0.8)  # Light blue grid
+    glColor3f(0.2, 0.4, 0.8)
     
-    # Draw an extended grid to create motion effect
-    # The grid should extend beyond player's view for smooth animation
-    grid_size = BATTLEFIELD_SIZE * 2  # Extended grid size
+    grid_size = BATTLEFIELD_SIZE * 2
     
-    # Draw X-axis lines
     for i in range(-grid_size, grid_size + grid_line_spacing, grid_line_spacing):
         grid_pos = i - grid_offset_x
         glVertex3f(grid_pos, -grid_size, 0)
         glVertex3f(grid_pos, grid_size, 0)
     
-    # Draw Y-axis lines
     for i in range(-grid_size, grid_size + grid_line_spacing, grid_line_spacing):
         grid_pos = i - grid_offset_y
         glVertex3f(-grid_size, grid_pos, 0)
@@ -1343,25 +1514,26 @@ def draw_animated_floor():
     glEnd()
 
 def draw_player():
-    """Draw the player's spaceship"""
-    # In first-person mode, don't render the player's ship
-    if camera_mode == 1:  # First-person mode
+    if camera_mode == 1:
         return
         
     glPushMatrix()
     glTranslatef(player_pos[0], player_pos[1], player_pos[2])
-    glRotatef(player_rotation, 0, 0, 1)  # Rotate around z-axis
+    glRotatef(player_rotation, 0, 0, 1)
     draw_spaceship(True)
+    
+    # Draw shield around player if active
+    if shield_active:
+        draw_shield()
+    
     glPopMatrix()
 
 def draw_enemies():
-    """Draw enemy spaceships"""
     for enemy in enemies:
         glPushMatrix()
         glTranslatef(enemy[0], enemy[1], enemy[2])
-        glRotatef(enemy[3], 0, 0, 1)  # Rotate around z-axis
+        glRotatef(enemy[3], 0, 0, 1)
         
-        # Check enemy type (stored in enemy[7])
         if len(enemy) > 7:
             if enemy[7] == "golden":
                 draw_golden_enemy_ship()
@@ -1377,19 +1549,30 @@ def draw_enemies():
         glPopMatrix()
 
 def draw_bullets():
-    """Draw laser beams"""
     for bullet in player_bullets:
         glPushMatrix()
         glTranslatef(bullet[0], bullet[1], bullet[2])
-        glRotatef(bullet[3], 0, 0, 1)  # Rotate to match firing direction
-        draw_laser_beam(False)  # Player lasers
+        glRotatef(bullet[3], 0, 0, 1)
+        draw_laser_beam(False)
         glPopMatrix()
     
     for bullet in enemy_bullets:
         glPushMatrix()
         glTranslatef(bullet[0], bullet[1], bullet[2])
-        glRotatef(bullet[3], 0, 0, 1)  # Rotate to match firing direction
-        draw_laser_beam(True)  # Enemy lasers
+        glRotatef(bullet[3], 0, 0, 1)
+        draw_laser_beam(True)
+        glPopMatrix()
+    
+    for missile in player_missiles:
+        glPushMatrix()
+        glTranslatef(missile[0], missile[1], missile[2])
+        glRotatef(missile[3], 0, 0, 1)
+        
+        if missile[6] == 0:
+            draw_missile()
+        else:
+            draw_missile_explosion(missile[7] * 3)
+        
         glPopMatrix()
 
 def keyboardListener(key, x, y):
@@ -1397,7 +1580,8 @@ def keyboardListener(key, x, y):
     Handles keyboard inputs for player movement and actions
     """
     global player_pos, player_rotation, player_speed, player_boost_speed, player_bullets, game_over, camera_mode, grid_animation_speed, camera_distance
-    global moving_forward, moving_backward, thruster_glow_intensity, cheat_mode_enabled
+    global moving_forward, moving_backward, thruster_glow_intensity, cheat_mode_enabled, player_missiles, missile_used_this_level
+    global shield_active, shield_timer, shield_used_in_game
     
     if key == b'c':
         cheat_mode_enabled = not cheat_mode_enabled
@@ -1516,31 +1700,55 @@ def keyboardListener(key, x, y):
         if new_z > 20:  # Minimum height above battlefield floor
             player_pos[2] = new_z
     
-    # Toggle camera mode (C key)
+    # Toggle camera mode (L key)
     if key == b'l':
         camera_mode = 1 - camera_mode  # Toggle between 0 and 1
         
-    # Fire lasers (Shift key)
+    # Fire lasers (Shift key or Spacebar)
     if key in (b'\x10', b' '):  # Left shift (0x10) or spacebar as alternative
-        if len(player_bullets) < 50:  # Limit number of laser beams
-            rad = player_rotation * math.pi / 180
-            offsets = [
-                (-18, 18),   # Far left
-                (-9, 9),     # Left-center
-                (0, 0),      # Center
-                (9, -9),     # Right-center
-                (18, -18)    # Far right
+        # Always fire regardless of player_bullets limit (simplified check)
+        rad = player_rotation * math.pi / 180
+        offsets = [
+            (-18, 18),   # Far left
+            (-9, 9),     # Left-center
+            (0, 0),      # Center
+            (9, -9),     # Right-center
+            (18, -18)    # Far right
+        ]
+        for offset_x, offset_y in offsets:
+            laser = [
+                player_pos[0] + 30 * math.cos(rad) + offset_x * math.sin(rad),
+                player_pos[1] + 30 * math.sin(rad) + offset_y * math.cos(rad),
+                player_pos[2],
+                player_rotation,
+                player_boost_speed + 20,  # Faster bullet speed based on boosted speed
+                200  # Increased lifetime for longer range
             ]
-            for offset_x, offset_y in offsets:
-                laser = [
-                    player_pos[0] + 30 * math.cos(rad) + offset_x * math.sin(rad),
-                    player_pos[1] + 30 * math.sin(rad) + offset_y * math.cos(rad),
-                    player_pos[2],
-                    player_rotation,
-                    player_boost_speed + 20,  # Faster bullet speed based on boosted speed
-                    200  # Increased lifetime for longer range
-                ]
-                player_bullets.append(laser)
+            player_bullets.append(laser)
+    
+    # Fire missile (M key) - only one per level
+    if key == b'm':
+        if not missile_used_this_level and len(player_missiles) < 3:  # Check if missile is available for this level
+            rad = player_rotation * math.pi / 180
+            missile = [
+                player_pos[0] + 40 * math.cos(rad),
+                player_pos[1] + 40 * math.sin(rad),
+                player_pos[2],
+                player_rotation,
+                30,  # slightly slower missile speed for better visibility
+                150,  # longer missile lifetime (frames)
+                0,    # explosion state: 0=moving, 1=exploding
+                0     # explosion timer/size
+            ]
+            player_missiles.append(missile)
+            missile_used_this_level = True  # Mark that missile has been used for this level
+            
+    # Activate shield (P key)
+    if key == b'p':
+        if not shield_active and not shield_used_in_game:  # Only activate if shield is not active and hasn't been used
+            shield_active = True
+            shield_timer = SHIELD_MAX_DURATION  # Set shield timer to max duration
+            shield_used_in_game = True  # Mark that shield has been used in this game
 
 def specialKeyListener(key, x, y):
     """
@@ -1568,7 +1776,6 @@ def mouseListener(button, state, x, y):
     """
     Handles mouse inputs (no longer used for firing)
     """
-    # Mouse click functionality moved to keyboard handler
     pass
 
 def update_game():
@@ -1577,8 +1784,17 @@ def update_game():
     """
     global player_bullets, enemy_bullets, enemies, score, game_over, thruster_glow_intensity
     global player_health, player_lives, hit_flash_duration, player_experience, player_level, game_won, enemies_respawn_timer
+    global player_missiles, missile_used_this_level, combo_count, combo_timer, combo_multiplier
+    global shield_active, shield_timer, auto_target, auto_move_timer, cheat_fire_timer, shield_used_in_game
     
-
+    # Update combo timer
+    if combo_timer > 0:
+        combo_timer -= 1
+        # Reset combo if timer reaches zero
+        if combo_timer == 0:
+            combo_count = 0
+            combo_multiplier = 1
+    
     # If the game has won, continue the game but keep the victory message
     # Allow player to continue fighting enemies
     if game_won:
@@ -1593,12 +1809,151 @@ def update_game():
             for i in range(3):
                 spawn_enemy("golden")
     
+    # Update shield timer if shield is active
+    if shield_active:
+        shield_timer -= 1
+        if shield_timer <= 0:
+            shield_active = False
+    
     # Update hit flash effect (decreases over time)
     if hit_flash_duration > 0:
         hit_flash_duration -= 1
     
     # Set thruster glow intensity to 0 (no thruster effects)
     thruster_glow_intensity = 0.0
+    
+    # Update missiles
+    for missile in player_missiles[:]:
+        # If missile is exploding
+        if missile[6] == 1:
+            # Update explosion timer/size
+            missile[7] += 1
+            
+            # During explosion, check for additional enemies in blast radius
+            if missile[7] < 3:  # Only check at start of explosion to avoid multiple hits
+                enemies_in_blast = []
+                blast_radius = 300  # Very large blast radius
+                
+                for enemy in enemies:
+                    # Calculate distance from explosion center to enemy
+                    dx = enemy[0] - missile[0]
+                    dy = enemy[1] - missile[1]
+                    dz = enemy[2] - missile[2]
+                    
+                    # Distance in 3D space
+                    dist_3d = math.sqrt(dx*dx + dy*dy + dz*dz)
+                    
+                    # If within blast radius, add to list
+                    if dist_3d < blast_radius:
+                        enemies_in_blast.append(enemy)
+                
+                # Destroy enemies in blast radius
+                destroy_count = 0
+                for enemy in enemies_in_blast[:]:
+                    if enemy in enemies:  # Make sure enemy wasn't removed
+                        # Handle boss separately
+                        if len(enemy) > 7 and enemy[7] == "boss":
+                            if len(enemy) > 8:
+                                enemy[8] -= 2000  # Massive damage
+                                if enemy[8] <= 0:
+                                    enemies.remove(enemy)
+                                    destroy_count += 1
+                            else:
+                                enemy.append(10000 - 2000)
+                        else:
+                            # All other enemies destroyed
+                            enemies.remove(enemy)
+                            destroy_count += 1
+                
+                # Update combo for missile kills
+                if destroy_count > 0:
+                    # Add to combo
+                    combo_count += destroy_count
+                    combo_timer = MAX_COMBO_TIME  # Reset timer
+                    
+                    # Update combo multiplier based on new combo count
+                    if combo_count >= 10:
+                        combo_multiplier = 3
+                    elif combo_count >= 5:
+                        combo_multiplier = 2
+                    else:
+                        combo_multiplier = 1
+                
+                # Award score with combo multiplier, but XP without multiplier
+                score += 100 * destroy_count * combo_multiplier  # Score uses multiplier
+                
+                # Check for level up
+                if player_experience >= 100:
+                    player_level += 1
+                    player_experience -= 100
+                    missile_used_this_level = False  # Reset missile usage for new level
+                    
+                    # Also reset combo when leveling up
+                    combo_count = 0
+                    combo_timer = 0
+                    combo_multiplier = 1
+                    
+                    enemies.clear()
+                    
+                    # Spawn appropriate enemies for level
+                    if player_level == 4:
+                        spawn_enemy("boss")
+                        for i in range(3):
+                            spawn_enemy("black-red")
+                    elif player_level == 3:
+                        for i in range(9):
+                            spawn_enemy("black-red")
+                        for i in range(5):
+                            spawn_enemy("golden")
+                    else:
+                        for i in range(8):
+                            spawn_enemy("golden") 
+                        for i in range(5):
+                            spawn_enemy("red")
+            # Remove missile after explosion completes
+            if missile[7] > 15:  # Explosion duration
+                player_missiles.remove(missile)
+            continue
+                
+        # If missile is still moving
+        rad = missile[3] * math.pi / 180
+        missile[0] += math.cos(rad) * missile[4]
+        missile[1] += math.sin(rad) * missile[4]
+        missile[5] -= 1
+        
+        # Check if missile lifetime expired
+        if missile[5] <= 0:
+            # Start explosion
+            missile[6] = 1
+            continue
+            
+        # Check for enemies directly in front of the missile's path
+        # This is just to trigger the explosion, actual damage is done in explosion phase
+        for enemy in enemies:
+            # Calculate vector from missile to enemy
+            dx = enemy[0] - missile[0]
+            dy = enemy[1] - missile[1]
+            dz = enemy[2] - missile[2]
+            
+            # Distance in 3D space
+            dist_3d = math.sqrt(dx*dx + dy*dy + dz*dz)
+            
+            # Calculate distance in horizontal plane
+            dist_2d = math.sqrt(dx*dx + dy*dy)
+            
+            # Get missile direction vector
+            missile_dir_x = math.cos(rad)
+            missile_dir_y = math.sin(rad)
+            
+            # Calculate the dot product to check if enemy is in front
+            dot_product = (dx * missile_dir_x + dy * missile_dir_y) / (dist_2d + 0.0001)
+            
+            # Very generous angle for collision detection - 120 degree cone (cos(60) = 0.5)
+            # This is just to trigger explosion, actual damage is area-effect in explosion phase
+            if (dot_product > 0.5 and dist_2d < 150):
+                # Start explosion when hitting an enemy
+                missile[6] = 1
+                break
     
     # Update player bullets
     for bullet in player_bullets[:]:  # Use a copy for safe removal
@@ -1681,6 +2036,7 @@ def update_game():
                 if player_experience >= 100:
                     player_level += 1
                     player_experience -= 100  # Reset experience for next level
+                    missile_used_this_level = False  # Reset missile usage for new level
                     
                     # Clear all existing enemies regardless of level
                     enemies.clear()
@@ -1721,7 +2077,20 @@ def update_game():
                         enemy_types = ["red", "golden", "black-red"]
                         spawn_enemy(random.choice(enemy_types))
                 
-                break
+                # Update combo system
+                combo_count += 1
+                combo_timer = MAX_COMBO_TIME  # Reset timer
+                
+                # Update combo multiplier
+                if combo_count >= 10:
+                    combo_multiplier = 3  # 3x score for 10+ combo
+                elif combo_count >= 5:
+                    combo_multiplier = 2  # 2x score for 5+ combo
+                else:
+                    combo_multiplier = 1  # Normal score
+                
+                # Apply combo multiplier to score only, XP remains standard
+                score += 100 * combo_multiplier  # Increased score with multiplier
     
     # Skip updates if game is over
     if game_over:
@@ -1742,45 +2111,35 @@ def update_game():
             enemy_bullets.remove(bullet)
             continue
         
-        # Check for collision with player
+        # Check for collision with player - larger hitbox for player ship
         dx = bullet[0] - player_pos[0]
         dy = bullet[1] - player_pos[1]
         dz = bullet[2] - player_pos[2]
         distance = math.sqrt(dx*dx + dy*dy + dz*dz)
         
-        if distance < 30:  # Hit player!
+        if distance < 40:  # Player collision detected
             enemy_bullets.remove(bullet)
             
-            # Determine damage based on bullet source
+            # Determine damage based on bullet type
             damage = DAMAGE_PER_HIT
-            
-            # Boss bullets do double damage
-            if len(bullet) > 6 and bullet[6] == "boss":  
+            if len(bullet) > 6 and bullet[6] == "boss":
                 damage = DAMAGE_PER_HIT * 2
             
-            # Apply damage and show hit effect
-            if not cheat_mode_enabled:
+            # Skip damage application if shield is active or cheat mode is enabled
+            if not shield_active and not cheat_mode_enabled:
                 player_health -= damage
                 hit_flash_duration = 10
-
+                
+                # Check if player lost a life
                 if player_health <= 0:
                     player_lives -= 1
+                    
                     if player_lives > 0:
-                        player_health = player_max_health
+                        # Player still has lives left
+                        player_health = player_max_health  # Reset health for next life
                     else:
+                        # Player is out of lives - game over
                         game_over = True
-
-            
-            # Check if player lost a life
-            if player_health <= 0:
-                player_lives -= 1
-                
-                if player_lives > 0:
-                    # Player still has lives left
-                    player_health = player_max_health  # Reset health for next life
-                else:
-                    # Player is out of lives - game over
-                    game_over = True
     
     # Update enemies
     for enemy in enemies:
@@ -2113,14 +2472,18 @@ def reset_game():
     global moving_forward, moving_backward, thruster_glow_intensity
     global player_health, player_lives, hit_flash_duration
     global player_experience, player_level, game_won, enemies_respawn_timer
-    global camera_mode, camera_distance
+    global camera_mode, camera_distance, player_missiles, missile_used_this_level
+    global combo_count, combo_timer, combo_multiplier
+    global shield_active, shield_timer, shield_used_in_game
     
+    # Reset player state
     player_pos = [0, 0, 50]
     player_rotation = 90  # Start at 90 degrees
     player_speed = 10  # Reset to increased speed
     player_boost_speed = 15  # Reset boost speed
     enemies = []
     player_bullets = []
+    player_missiles = []
     enemy_bullets = []
     score = 0
     game_over = False
@@ -2145,25 +2508,24 @@ def reset_game():
     camera_mode = 0
     camera_distance = 200
     
+    # Reset missile usage
+    missile_used_this_level = False
+    
+    # Reset shield
+    shield_active = False
+    shield_timer = 0
+    shield_used_in_game = False  # Reset shield usage for the new game
+    
     # Initialize enemies at random positions far from player
     for i in range(10):
         preferred_distance = random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)
         angle = random.uniform(0, 2 * math.pi)
-        
-        # Position based on preferred distance
-        pos_x = player_pos[0] + math.cos(angle) * preferred_distance
-        pos_y = player_pos[1] + math.sin(angle) * preferred_distance
-        
-        # Ensure within battlefield bounds
-        pos_x = max(min(pos_x, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
-        pos_y = max(min(pos_y, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
-        
         enemies.append([
-            pos_x,  # x
-            pos_y,  # y
-            random.uniform(100, 500),  # z (height)
-            random.uniform(0, 360),    # rotation
-            random.randint(0, ENEMY_SHOOT_COOLDOWN),  # shooting cooldown
+            player_pos[0] + math.cos(angle) * preferred_distance,
+            player_pos[1] + math.sin(angle) * preferred_distance,
+            random.uniform(100, 500),
+            random.uniform(0, 360),
+            random.randint(0, ENEMY_SHOOT_COOLDOWN),
             [0, 0, 0],  # target position (will be set during gameplay)
             random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)  # preferred distance from player
         ])
@@ -2171,6 +2533,11 @@ def reset_game():
     # Reset game state
     game_over = False
     game_won = False
+    
+    # Reset combo system
+    combo_count = 0
+    combo_timer = 0
+    combo_multiplier = 1
 
 def setupCamera():
     """
@@ -2179,43 +2546,38 @@ def setupCamera():
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
     
-    if camera_mode == 1:  # First-person view gets a wider field of view
-        gluPerspective(70, 1.25, 0.1, 5000)  # Wider field of view for first-person
+    if camera_mode == 1:
+        gluPerspective(70, 1.25, 0.1, 5000)
     else:
-        gluPerspective(fovY, 1.25, 0.1, 5000)  # Standard FOV for third-person
+        gluPerspective(fovY, 1.25, 0.1, 5000)
         
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
     
-    if camera_mode == 0:  # Third-person view
-        # Position camera behind and above player
-        rad = (player_rotation + 180) * math.pi / 180  # Behind player
+    if camera_mode == 0:
+        rad = (player_rotation + 180) * math.pi / 180
         camera_x = player_pos[0] + camera_distance * math.cos(rad)
         camera_y = player_pos[1] + camera_distance * math.sin(rad)
-        camera_z = player_pos[2] + 100  # Above player
+        camera_z = player_pos[2] + 100
         
-        # Look at player
-        gluLookAt(camera_x, camera_y, camera_z,  # Camera position
-                player_pos[0], player_pos[1], player_pos[2],  # Look at player
-                0, 0, 1)  # Up vector (z-axis)
-    else:  # First-person/cockpit view
-        # Position camera at player position with slight adjustments for cockpit feel
+        gluLookAt(camera_x, camera_y, camera_z,
+                player_pos[0], player_pos[1], player_pos[2],
+                0, 0, 1)
+    else:
         rad = player_rotation * math.pi / 180
         
-        # Position camera slightly above player position for cockpit view
-        camera_x = player_pos[0] + 3 * math.cos(rad)  # Slightly forward from center
+        camera_x = player_pos[0] + 3 * math.cos(rad)
         camera_y = player_pos[1] + 3 * math.sin(rad)
-        camera_z = player_pos[2] + 15  # Positioned at cockpit height
+        camera_z = player_pos[2] + 15
         
-        # Calculate look-at point far ahead of player
-        look_distance = 200  # Look farther for better depth perception
+        look_distance = 200
         look_x = player_pos[0] + look_distance * math.cos(rad)
         look_y = player_pos[1] + look_distance * math.sin(rad)
-        look_z = player_pos[2] + 5  # Slight downward angle for better visibility
+        look_z = player_pos[2] + 5
         
-        gluLookAt(camera_x, camera_y, camera_z,  # Camera at cockpit position
-                look_x, look_y, look_z,  # Look forward
-                0, 0, 1)  # Up vector
+        gluLookAt(camera_x, camera_y, camera_z,
+                look_x, look_y, look_z,
+                0, 0, 1)
 
 def idle():
     """
@@ -2304,21 +2666,6 @@ def showScreen():
         
         glDisable(GL_BLEND)
         
-        # Game over text
-        glColor3f(1.0, 0.0, 0.0)
-        glRasterPos2f(400, 450)
-        for ch in "GAME OVER":
-            glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, ord(ch))
-        
-        glColor3f(1.0, 1.0, 1.0)
-        glRasterPos2f(350, 400)
-        for ch in "Press 'R' to restart":
-            glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
-        
-        glRasterPos2f(350, 350)
-        for ch in f"Final Score: {score}":
-            glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(ch))
-        
         # Restore matrix state
         glPopMatrix()
         glMatrixMode(GL_PROJECTION)
@@ -2328,105 +2675,191 @@ def showScreen():
     glutSwapBuffers()
 
 def draw_battlefield_boundaries():
-    """Draw subtle indicators for battlefield boundaries"""
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     
-    # Draw subtle boundary walls
     glBegin(GL_QUADS)
     
-    # Get player's distance from boundaries
-    dist_to_boundary_x = BATTLEFIELD_SIZE - abs(player_pos[0])
-    dist_to_boundary_y = BATTLEFIELD_SIZE - abs(player_pos[1])
-    
-    # Only show boundaries when player is close to them (within 200 units)
     boundary_visibility = 200
     
-    # North boundary (positive Y)
     if BATTLEFIELD_SIZE - player_pos[1] < boundary_visibility:
-        # Calculate alpha based on proximity to boundary
-        alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE - player_pos[1]) / boundary_visibility)
-        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)
         glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
         glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
-        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
-        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)
+        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)
     
-    # South boundary (negative Y)
     if BATTLEFIELD_SIZE + player_pos[1] < boundary_visibility:
-        # Calculate alpha based on proximity to boundary
-        alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE + player_pos[1]) / boundary_visibility)
-        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)
         glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
         glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
-        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
-        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)
+        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)
     
-    # East boundary (positive X)
     if BATTLEFIELD_SIZE - player_pos[0] < boundary_visibility:
-        # Calculate alpha based on proximity to boundary
-        alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE - player_pos[0]) / boundary_visibility)
-        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)
         glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
         glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
-        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
-        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)
+        glVertex3f(BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)
     
-    # West boundary (negative X)
     if BATTLEFIELD_SIZE + player_pos[0] < boundary_visibility:
-        # Calculate alpha based on proximity to boundary
-        alpha = 0.2 * (1.0 - (BATTLEFIELD_SIZE + player_pos[0]) / boundary_visibility)
-        glColor3f(0.4, 0.8, 1.0)  # Cyan-blue, semi-transparent
+        glColor3f(0.4, 0.8, 1.0)
         glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 0)
         glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 0)
-        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
-        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)  # Increased wall height from 500 to 1000
+        glVertex3f(-BATTLEFIELD_SIZE, BATTLEFIELD_SIZE, 1000)
+        glVertex3f(-BATTLEFIELD_SIZE, -BATTLEFIELD_SIZE, 1000)
         
     glEnd()
-    
     glDisable(GL_BLEND)
 
 def spawn_enemy(enemy_type="red"):
-    """Spawn a new enemy of specific type"""
     preferred_distance = random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)
     
-    # For boss, use fixed position directly ahead of player
     if enemy_type == "boss":
         angle = player_rotation * math.pi / 180
-        preferred_distance = MAX_ENEMY_DISTANCE * 0.8  # Place boss at 80% of max distance
+        preferred_distance = MAX_ENEMY_DISTANCE * 0.8
     else:
         angle = random.uniform(0, 2 * math.pi)
     
-    # Position based on preferred distance
     pos_x = player_pos[0] + math.cos(angle) * preferred_distance
     pos_y = player_pos[1] + math.sin(angle) * preferred_distance
     
-    # Ensure within battlefield bounds
     pos_x = max(min(pos_x, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
     pos_y = max(min(pos_y, BATTLEFIELD_SIZE/2 - 50), -BATTLEFIELD_SIZE/2 + 50)
     
-    # Create base enemy with standard attributes
     new_enemy = [
-        pos_x,  # x
-        pos_y,  # y
-        random.uniform(100, 500),  # z (height)
-        random.uniform(0, 360),    # rotation
-        random.randint(0, ENEMY_SHOOT_COOLDOWN),  # shooting cooldown
-        [0, 0, 0],  # target position (will be set during gameplay)
-        random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)  # preferred distance from player
+        pos_x,
+        pos_y,
+        random.uniform(100, 500),
+        random.uniform(0, 360),
+        random.randint(0, ENEMY_SHOOT_COOLDOWN),
+        [0, 0, 0],
+        random.uniform(MIN_ENEMY_DISTANCE, MAX_ENEMY_DISTANCE)
     ]
     
-    # Add enemy type
     if enemy_type in ["golden", "black-red", "boss"]:
         new_enemy.append(enemy_type)
     
-    # For boss, give it a longer shooting cooldown, but make it more aggressive
     if enemy_type == "boss":
-        new_enemy[4] = 60  # Boss starts shooting after longer delay (adjusted from 30)
-        # Use a fixed height for the boss
+        new_enemy[4] = 60
         new_enemy[2] = 200
     
     enemies.append(new_enemy)
+
+def draw_missile():
+    glPushMatrix()
+    glColor3f(0.7, 0.7, 0.8)
+    quad = gluNewQuadric()
+    gluCylinder(quad, 3.5, 3.5, 40, 16, 8)
+    
+    glPushMatrix()
+    glTranslatef(0, 0, 40)
+    glColor3f(0.9, 0.2, 0.0)
+    glutSolidSphere(4, 12, 16)
+    glPopMatrix()
+    
+    for angle in [0, 90, 180, 270]:
+        glPushMatrix()
+        glTranslatef(0, 0, 15)
+        glRotatef(angle, 0, 0, 1)
+        glTranslatef(3.5, 0, 0)
+        glRotatef(90, 0, 1, 0)
+        glColor3f(0.3, 0.3, 0.4)
+        glutSolidSphere(4, 8, 8)
+        glPopMatrix()
+    
+    glPushMatrix()
+    glTranslatef(0, 0, -1)
+    glColor3f(1.0, 0.5, 0.0)
+    glutSolidSphere(3.5, 16, 16)
+    glPopMatrix()
+    
+    glPushMatrix()
+    glTranslatef(0, 0, -3)
+    glColor3f(1.0, 0.8, 0.0)
+    glutSolidSphere(2.5, 12, 12)
+    glPopMatrix()
+    
+    glPushMatrix()
+    glTranslatef(0, 0, -5)
+    glColor3f(1.0, 1.0, 0.5)
+    glutSolidSphere(1.5, 8, 8)
+    glPopMatrix()
+    
+    glPopMatrix()
+
+def draw_missile_explosion(size):
+    glColor3f(1.0, 0.4, 0.0)
+    glutSolidSphere(size, 20, 20)
+    
+    glPushMatrix()
+    glColor3f(1.0, 0.7, 0.0)
+    glutSolidSphere(size * 0.8, 16, 16)
+    glPopMatrix()
+    
+    glPushMatrix()
+    glColor3f(1.0, 0.9, 0.3)
+    glutSolidSphere(size * 0.5, 12, 12)
+    glPopMatrix()
+    
+    glPushMatrix()
+    glColor3f(1.0, 1.0, 0.7)
+    glutSolidSphere(size * 0.25, 8, 8)
+    glPopMatrix()
+
+def draw_shield():
+    """Draw a shield around the player's spaceship"""
+    if not shield_active:
+        return
+    
+    # Shield pulse effect - make it "breathe" based on timer
+    pulse = math.sin(shield_timer * 0.05) * 0.1 + 0.9
+    scale_factor = 1.5 * pulse  # Shield size relative to ship
+    
+    # Set shield color to a very light blue
+    shield_intensity = min(1.0, shield_timer / SHIELD_MAX_DURATION * 1.2)
+    
+    # Draw a minimal wireframe shield using only lines
+    glLineWidth(1.0)  # Thin lines
+    
+    # Draw several rings at different angles to create a shield effect
+    # Longitude lines
+    for angle in range(0, 180, 30):
+        glPushMatrix()
+        glRotatef(angle, 0, 0, 1)
+        glColor3f(0.3, 0.8, 0.9)  # Light blue
+        
+        glBegin(GL_LINE_LOOP)
+        for i in range(32):
+            theta = i * 2.0 * math.pi / 32
+            x = 60 * scale_factor * math.cos(theta)
+            y = 0
+            z = 60 * scale_factor * math.sin(theta)
+            glVertex3f(x, y, z)
+        glEnd()
+        glPopMatrix()
+    
+    # Latitude lines
+    for height in range(-90, 91, 30):
+        radius = 60 * scale_factor * math.cos(height * math.pi / 180)
+        z = 60 * scale_factor * math.sin(height * math.pi / 180)
+        
+        glPushMatrix()
+        glTranslatef(0, 0, z)
+        glColor3f(0.3, 0.8, 0.9)  # Light blue
+        
+        glBegin(GL_LINE_LOOP)
+        for i in range(32):
+            theta = i * 2.0 * math.pi / 32
+            x = radius * math.cos(theta)
+            y = radius * math.sin(theta)
+            glVertex3f(x, y, 0)
+        glEnd()
+        glPopMatrix()
+    
+    # Reset line width
+    glLineWidth(1.0)
 
 def main():
     glutInit()
@@ -2435,10 +2868,8 @@ def main():
     glutInitWindowPosition(0, 0)
     wind = glutCreateWindow(b"3D Space Shooter")
     
-    # Enable depth testing for 3D rendering
     glEnable(GL_DEPTH_TEST)
     
-    # Register callback functions
     glutDisplayFunc(showScreen)
     glutKeyboardFunc(keyboardListener)
     glutSpecialFunc(specialKeyListener)
