@@ -2,8 +2,6 @@
 
 A 3D space combat game built with Python and OpenGL where players pilot a battleship through various levels of increasingly difficult enemy encounters.
 
-![3D Space Shooter](assets/Screenshot%202025-05-03%20023250.png)
-
 ## 👨‍🚀 Description
 
 3D Space Shooter is an action-packed space combat game where you control a powerful battleship and engage in intense dogfights with enemy spacecraft. Navigate through an expansive battlefield, take down enemies, avoid enemy fire, and ultimately defeat the final boss to win the game.
@@ -59,8 +57,8 @@ Advance through levels by gaining experience points from destroying enemy ships.
 
 ### Main Gameplay
 
-![Gameplay Screenshot](assets/Screenshot%202025-05-03%20022423.png)
-_Spaceship and the game arena_
+![Gameplay Screenshot](assets/Screenshot%202025-05-03%20024424.png)
+_Spaceship (shield mode on) and the game arena_
 
 ### Advanced Combat
 
