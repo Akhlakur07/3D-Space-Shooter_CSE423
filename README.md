@@ -83,7 +83,7 @@ _Final boss encounter_
 
    ```
    git clone https://github.com/Akhlakur07/3D-Space-Shooter_CSE423.git
-   cd 3d-space-shooter
+   cd 3D-Space-Shooter_CSE423
    ```
 
 2. Install the required packages:
